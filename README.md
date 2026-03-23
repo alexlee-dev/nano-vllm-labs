@@ -114,3 +114,6 @@ The `vLLM` and `Nano-vLLM` results below use the 256-sequence benchmark configur
 | vLLM             | N/A                 | 133,966       | 98.37    | 1361.84               |
 | Nano-vLLM        | N/A                 | 133,966       | 93.41    | 1434.13               |
 
+## Star History
+
+[![Star History Chart](https://api.star-history.com/image?repos=alexlee-dev/nano-vllm-labs&type=date&logscale&legend=top-left)](https://www.star-history.com/?repos=alexlee-dev%2Fnano-vllm-labs&type=date&logscale=&legend=top-left)
