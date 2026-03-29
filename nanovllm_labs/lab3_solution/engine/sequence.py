@@ -14,14 +14,6 @@ class Sequence(BaseSequence):
 
     def __getitem__(self, key):
         return self.token_ids[key]
-
-    @property
-    def id(self) -> int:
-        return self.seq_id
-    
-    @property
-    def prompt_token_ids(self) -> list[int]:
-        return self.token_ids[: self.num_prompt_tokens]
     
     @property
     def num_cached_blocks(self) -> int:

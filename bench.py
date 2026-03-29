@@ -21,6 +21,13 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--lab", type=int, required=True, choices=[1, 2, 3, 4])
     parser.add_argument("--solution", action="store_true")
+    parser.add_argument(
+        "--model",
+        type=str,
+        default="~/huggingface/Qwen3-0.6B/",
+        help="Local path to the downloaded Qwen3-0.6B model directory. "
+             "If omitted, NANOVLLM_MODEL is used.",
+    )
     return parser.parse_args()
 
 
@@ -53,6 +60,22 @@ def build_llm(lab: int, solution: bool, model: str):
     raise ValueError(f"unsupported lab: {lab}")
 
 
+def resolve_model_path(model_arg: str | None) -> str:
+    model = model_arg or os.environ.get("NANOVLLM_MODEL")
+    if not model:
+        raise ValueError(
+            "Model path is required. Pass --model /path/to/Qwen3-0.6B "
+            "or set NANOVLLM_MODEL."
+        )
+    model = os.path.expanduser(model)
+    if not os.path.isdir(model):
+        raise FileNotFoundError(
+            f"Model directory not found: {model}. "
+            "Download the model locally first."
+        )
+    return model
+
+
 def get_num_output_tokens(output) -> int:
     if isinstance(output, dict) and "token_ids" in output:
         return len(output["token_ids"])
@@ -66,7 +89,7 @@ def main() -> None:
     max_input_len = 1024
     max_output_len = 1024
 
-    model = os.path.expanduser("~/huggingface/Qwen3-0.6B/")
+    model = resolve_model_path(args.model)
     llm = build_llm(args.lab, args.solution, model)
     prompt_token_ids = [[randint(0, 10000) for _ in range(randint(100, max_input_len))] for _ in range(num_seqs)]
     sampling_params = [

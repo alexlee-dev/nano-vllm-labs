@@ -65,41 +65,49 @@ huggingface-cli download --resume-download Qwen/Qwen3-0.6B \
   --local-dir-use-symlinks False
 ```
 
-## Run
-
-Use the Make targets to run a lab or its solution version:
+Then point the scripts at that local model directory:
 ```bash
-make run-lab1
-make run-lab1-s
+export NANOVLLM_MODEL=~/huggingface/Qwen3-0.6B/
 ```
 
-The same naming pattern is available for other labs:
+## Run
+
+The student `lab1` to `lab4` packages are starter skeletons for the exercises.
+They are not expected to run successfully until you fill in the missing code.
+
+If you want a working reference implementation, use the solution targets:
 ```bash
-make run-lab2
+make run-lab1-s
 make run-lab2-s
-make run-lab3
 make run-lab3-s
-make run-lab4
 make run-lab4-s
+```
+
+If you want to work through the exercises, use the matching student targets:
+```bash
+make run-lab1
+make run-lab2
+make run-lab3
+make run-lab4
+```
+
+The same model path can also be passed explicitly without `make`:
+```bash
+.venv/bin/python example.py --lab 4 --solution --model ~/huggingface/Qwen3-0.6B/
 ```
 
 ## Benchmark
 
-Use the matching benchmark targets:
+The published numbers below come from the solution implementations.
+Use the matching solution benchmark targets if you want the same code path:
 ```bash
-make bench-lab1
 make bench-lab1-s
-```
-
-The same naming pattern is available for other labs:
-```bash
-make bench-lab2
 make bench-lab2-s
-make bench-lab3
 make bench-lab3-s
-make bench-lab4
 make bench-lab4-s
 ```
+
+The student benchmark targets exist for parity with the lab structure, but they only make sense after you implement the corresponding lab.
 
 **Test Configuration:**
 - Hardware: RTX 4070 Laptop (8GB)

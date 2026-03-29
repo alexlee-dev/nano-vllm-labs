@@ -13,8 +13,6 @@ from nanovllm_labs.lab4_solution.utils.context import reset_context, set_context
 from nanovllm_labs.lab4_solution.utils.loader import load_model
 from nanovllm_labs.sampling_params import SamplingParams
 
-from .sequence import Sequence
-
 
 class ModelRunner:
     def __init__(

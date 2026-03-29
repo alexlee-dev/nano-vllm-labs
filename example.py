@@ -11,6 +11,13 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--lab", type=int, default=1)
     parser.add_argument("--solution", action="store_true")
+    parser.add_argument(
+        "--model",
+        type=str,
+        default="~/huggingface/Qwen3-0.6B/",
+        help="Local path to the downloaded Qwen3-0.6B model directory. "
+             "If omitted, NANOVLLM_MODEL is used.",
+    )
     return parser.parse_args()
 
 
@@ -31,9 +38,25 @@ def get_completion_text(output):
     return str(output)
 
 
+def resolve_model_path(model_arg: str | None) -> str:
+    model = model_arg or os.environ.get("NANOVLLM_MODEL")
+    if not model:
+        raise ValueError(
+            "Model path is required. Pass --model /path/to/Qwen3-0.6B "
+            "or set NANOVLLM_MODEL."
+        )
+    model = os.path.expanduser(model)
+    if not os.path.isdir(model):
+        raise FileNotFoundError(
+            f"Model directory not found: {model}. "
+            "Download the model locally first."
+        )
+    return model
+
+
 def main():
     args = parse_args()
-    path = os.path.expanduser("~/huggingface/Qwen3-0.6B/")
+    path = resolve_model_path(args.model)
     tokenizer = AutoTokenizer.from_pretrained(path, use_fast=True, trust_remote_code=True)
     llm_cls = load_llm_engine(args.lab, args.solution)
     llm = llm_cls(path, device="auto", dtype="auto")

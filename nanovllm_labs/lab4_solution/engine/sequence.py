@@ -26,14 +26,6 @@ class Sequence(BaseSequence):
         return self.token_ids[key]
 
     @property
-    def is_finished(self) -> bool:
-        return self.status == SequenceStatus.FINISHED
-
-    @property
-    def prompt_token_ids(self) -> list[int]:
-        return self.token_ids[: self.num_prompt_tokens]
-
-    @property
     def num_cached_blocks(self) -> int:
         return self.num_cached_tokens // self.block_size
 
