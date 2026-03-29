@@ -6,11 +6,20 @@ This repository is an unofficial educational lab series based on nano-vllm.
 Original nano-vllm code is Copyright (c) 2025 Xingkai Yu and licensed under the MIT License.
 Additional lab materials and modifications are Copyright (c) 2026 Alex Lee and also licensed under the MIT License.
 
+## Scope
+
+This lab series currently stops at a single-GPU serving engine.
+
+That is a deliberate scope limit for this repository: I only have one GPU available for development and validation, so the code here focuses on the parts that can be built and benchmarked cleanly on one card.
+
+If you want the fuller production-oriented runtime, including code beyond this single-GPU lab scope, refer directly to the original nano-vllm project.
+
 ## Lab Overview
 
 - Lab 1 builds the smallest end-to-end LLM inference loop: load a model and tokenizer, generate one token at a time, and decode the result.
 - Lab 2 keeps the same simple engine structure, but replaces the Hugging Face model with a hand-written Qwen3 forward pass and custom safetensors weight loading.
 - Lab 3 introduces runtime-oriented optimizations: paged KV cache management, request scheduling, and continuous batching across many active sequences.
+- Lab 4 keeps the Lab 3 paged-KV runtime, then pushes the single-GPU execution path further with cleaner runtime state tracking, warmup-based memory sizing, and CUDA Graph capture for decode batches.
 
 ## Environment Setup
 
@@ -111,6 +120,7 @@ The `vLLM` and `Nano-vLLM` results below use the 256-sequence benchmark configur
 | Lab1-solution    | `make bench-lab1-s` | 1,537         | 106.72   | 14.40                 |
 | Lab2-solution    | `make bench-lab2-s` | 1,537         | 111.05   | 13.84                 |
 | Lab3-solution    | `make bench-lab3-s` | 133,966       | 154.67   | 866.12                |
+| Lab4-solution    | `make bench-lab4-s` | 133,966       | 98.19    | 1364.34               |
 | vLLM             | N/A                 | 133,966       | 98.37    | 1361.84               |
 | Nano-vLLM        | N/A                 | 133,966       | 93.41    | 1434.13               |
 
