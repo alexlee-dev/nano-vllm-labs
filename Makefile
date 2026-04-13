@@ -1,4 +1,4 @@
-.PHONY: run-lab1 run-lab1-s run-lab2 run-lab2-s run-lab3 run-lab3-s run-lab4 run-lab4-s bench-lab1 bench-lab1-s bench-lab2 bench-lab2-s bench-lab3 bench-lab3-s bench-lab4 bench-lab4-s
+.PHONY: run-lab1 run-lab1-s run-lab2 run-lab2-s run-lab3 run-lab3-s run-lab4 run-lab4-s bench-lab1 bench-lab1-s bench-lab2 bench-lab2-s bench-lab3 bench-lab3-s bench-lab4 bench-lab4-s bench-prefix-lab3-s bench-prefix-lab4-s
 
 PYTHON := .venv/bin/python
 
@@ -49,3 +49,9 @@ bench-lab4:
 
 bench-lab4-s:
 	$(PYTHON) bench.py --lab 4 --solution
+
+bench-prefix-lab3-s:
+	$(PYTHON) bench_prefix.py --lab 3 --solution
+
+bench-prefix-lab4-s:
+	$(PYTHON) bench_prefix.py --lab 4 --solution

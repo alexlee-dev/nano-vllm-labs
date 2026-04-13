@@ -69,7 +69,13 @@ class Scheduler:
         finished_outputs: list[tuple[int, list[int]]] = []
         for seq, token_id in zip(seqs, token_ids):
             seq.append_token(token_id)
-            if (not seq.ignore_eos and token_id == self.eos_token_id) or seq.num_completion_tokens == seq.max_tokens:
+            if not seq.ignore_eos and token_id == self.eos_token_id:
+                seq.finish_reason = "eos"
+                self.block_manager.deallocate(seq)
+                self.running.remove(seq)
+                finished_outputs.append((seq.seq_id, seq.completion_token_ids))
+            elif seq.num_completion_tokens == seq.max_tokens:
+                seq.finish_reason = "length"
                 self.block_manager.deallocate(seq)
                 self.running.remove(seq)
                 finished_outputs.append((seq.seq_id, seq.completion_token_ids))

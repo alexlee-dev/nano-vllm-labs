@@ -6,6 +6,19 @@ This repository is an unofficial educational lab series based on nano-vllm.
 Original nano-vllm code is Copyright (c) 2025 Xingkai Yu and licensed under the MIT License.
 Additional lab materials and modifications are Copyright (c) 2026 Alex Lee and also licensed under the MIT License.
 
+## Quickstart
+
+```bash
+python3.12 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip setuptools wheel
+python -m pip install -e .
+export NANOVLLM_MODEL=~/huggingface/Qwen3-0.6B/
+make run-lab4-s
+make bench-lab4-s
+make bench-prefix-lab4-s
+```
+
 ## Scope
 
 This lab series currently stops at a single-GPU serving engine.
@@ -120,8 +133,30 @@ The student benchmark targets exist for parity with the lab structure, but they 
 - Input Length: Randomly sampled between 100–1024 tokens
 - Output Length: Randomly sampled between 100–1024 tokens
 
+For `lab3` and `lab4`, the benchmark also prints request-level latency summaries in the form:
+`request_<metric>: count=... mean=... median=... p95=... p99=...`
+
+These are production-style serving metrics rather than only aggregate throughput.
+
+Definitions:
+- `request_queue_ms`: arrival to first scheduling
+- `request_compute_ttft_ms`: first scheduling to first output token
+- `request_ttft_ms`: arrival to first output token
+- `request_decode_ms`: first output token to last output token
+- `request_inference_ms`: first scheduling to last output token
+- `request_tpot_ms`: average per-token latency after the first token
+- `request_e2e_ms`: arrival to final request completion
+
+Relationships:
+- `request_ttft_ms = request_queue_ms + request_compute_ttft_ms`
+- `request_inference_ms = request_compute_ttft_ms + request_decode_ms`
+
+These request-level metrics are only meaningful for the scheduler-based labs (`lab3` and `lab4`).
+`lab1` and `lab2` still print the aggregate throughput-oriented metrics, but do not expose the same queueing/runtime breakdown.
+
 **Performance Results:**
 The `vLLM` and `Nano-vLLM` results below use the 256-sequence benchmark configuration.
+Measured on: RTX 4070 Laptop GPU (8GB), `Qwen3-0.6B`, default benchmark workload with random input/output lengths in `100..1024`.
 
 | Inference Engine | Command             | Output Tokens | Time (s) | Throughput (tokens/s) |
 |------------------|---------------------|---------------|----------|-----------------------|
@@ -131,6 +166,22 @@ The `vLLM` and `Nano-vLLM` results below use the 256-sequence benchmark configur
 | Lab4-solution    | `make bench-lab4-s` | 133,966       | 98.19    | 1364.34               |
 | vLLM             | N/A                 | 133,966       | 98.37    | 1361.84               |
 | Nano-vLLM        | N/A                 | 133,966       | 93.41    | 1434.13               |
+
+### Prefix Benchmark
+
+Use the prefix benchmark to isolate the effect of prompt-prefix reuse:
+
+```bash
+make bench-prefix-lab3-s
+make bench-prefix-lab4-s
+```
+
+This benchmark only applies to `lab3` and `lab4`.
+It runs `0%` and `100%` shared-prefix workloads so the comparison stays clean: `0%` is the no-reuse baseline, and `100%` is the prefix-reuse case.
+
+The most important prefix-specific outputs are:
+- `request_cached_prompt_tokens`
+- `request_cached_prompt_ratio`
 
 ## Star History
 
