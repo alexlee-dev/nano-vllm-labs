@@ -78,6 +78,7 @@ def _lab4_kwargs(args: argparse.Namespace) -> dict[str, Any]:
         "gpu_memory_utilization": args.gpu_memory_utilization,
         "enforce_eager": args.enforce_eager,
         "dtype": args.dtype,
+        "tensor_parallel_size": args.tensor_parallel_size,
     }
 
 
@@ -201,6 +202,17 @@ BENCH_SPECS: dict[tuple[int, bool], BenchSpec] = {
         extra_fields=lambda args, model, workload: [],
         prefill_tokens_for_step=lambda seqs: sum(seq.num_prompt_tokens - seq.num_cached_tokens for seq in seqs),
     ),
+    (5, True): make_scheduler_spec(
+        lab=5,
+        solution=True,
+        module_name="nanovllm_labs.lab5_solution.engine.llm_engine",
+        dtype_choices=("auto", "float16", "bfloat16", "float32"),
+        include_max_model_len=True,
+        include_enforce_eager=True,
+        kwargs_builder=_lab4_kwargs,
+        extra_fields=lambda args, model, workload: [],
+        prefill_tokens_for_step=lambda seqs: sum(seq.num_prompt_tokens - seq.num_cached_tokens for seq in seqs),
+    ),
 }
 
 
@@ -213,6 +225,11 @@ def get_bench_spec(*, lab: int, solution: bool) -> BenchSpec:
 
 def run_bench_spec(argv: list[str] | None, *, lab: int, solution: bool) -> None:
     spec = get_bench_spec(lab=lab, solution=solution)
+    argv = list(argv or [])
+    if lab == 5 and "--model" not in argv:
+        argv = ["--model", "~/huggingface/Qwen3-4B/"] + argv
+    if lab == 5 and "--tensor-parallel-size" not in argv:
+        argv = ["--tensor-parallel-size", "2"] + argv
     if spec.kind == "autoregressive":
         run_autoregressive_entrypoint(
             argv,
