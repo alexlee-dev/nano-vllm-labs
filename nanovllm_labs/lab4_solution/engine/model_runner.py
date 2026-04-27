@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 import os
+import pickle
 
 import torch
+import torch.distributed as dist
+from multiprocessing.shared_memory import SharedMemory
+from multiprocessing.synchronize import Event
 from transformers import AutoConfig
 
-from nanovllm_labs.lab4_solution.utils.context import get_context
 from nanovllm_labs.lab4_solution.engine.sequence import Sequence
 from nanovllm_labs.lab4_solution.layers.sampler import Sampler
 from nanovllm_labs.lab4_solution.models.qwen3 import Qwen3ForCausalLM
-from nanovllm_labs.lab4_solution.utils.context import reset_context, set_context
+from nanovllm_labs.lab4_solution.utils.context import get_context, reset_context, set_context
 from nanovllm_labs.lab4_solution.utils.loader import load_model
 from nanovllm_labs.sampling_params import SamplingParams
 
@@ -25,41 +28,61 @@ class ModelRunner:
         gpu_memory_utilization: float = 0.9,
         enforce_eager: bool = False,
         dtype: str = "auto",
+        tensor_parallel_size: int = 1,
+        distributed_init_method: str = "tcp://127.0.0.1:2333",
+        shm_name: str = "nanovllm_labs_lab4_tp",
+        shm_size_bytes: int = 2**20,
+        rank: int = 0,
+        event: Event | list[Event] | None = None,
     ) -> None:
         if not torch.cuda.is_available():
             raise RuntimeError("Lab04 requires CUDA.")
+        if torch.cuda.device_count() < tensor_parallel_size:
+            raise RuntimeError(
+                f"Requested tensor_parallel_size={tensor_parallel_size}, "
+                f"but only {torch.cuda.device_count()} CUDA device(s) are visible."
+            )
 
-        self.model_path = os.path.expanduser(model)
+        model_path = os.path.expanduser(model)
         self.max_num_seqs = max_num_seqs
         self.max_num_batched_tokens = max_num_batched_tokens
         self.max_model_len = max_model_len
         self.block_size = block_size
         self.gpu_memory_utilization = gpu_memory_utilization
         self.enforce_eager = enforce_eager
+        self.world_size = tensor_parallel_size
+        self.rank = rank
+        self.event = event
+        self.shm_name = shm_name
 
-        torch.cuda.set_device(0)
-        self.hf_config = AutoConfig.from_pretrained(self.model_path, trust_remote_code=True)
-        if dtype == "auto":
-            torch_dtype = torch.bfloat16
-        elif dtype == "float16":
-            torch_dtype = torch.float16
-        elif dtype == "bfloat16":
-            torch_dtype = torch.bfloat16
-        elif dtype == "float32":
-            torch_dtype = torch.float32
-        else:
+        dist.init_process_group(
+            "nccl",
+            init_method=distributed_init_method,
+            world_size=self.world_size,
+            rank=self.rank,
+        )
+        torch.cuda.set_device(self.rank)
+
+        self.hf_config = AutoConfig.from_pretrained(model_path, trust_remote_code=True)
+        dtype_map = {
+            "auto": torch.bfloat16,
+            "float16": torch.float16,
+            "bfloat16": torch.bfloat16,
+            "float32": torch.float32,
+        }
+        torch_dtype = dtype_map.get(dtype)
+        if torch_dtype is None:
             raise ValueError(f"Unsupported dtype={dtype!r}")
         self.hf_config.torch_dtype = torch_dtype
         self.max_model_len = min(self.max_model_len, self.hf_config.max_position_embeddings)
         if self.max_num_batched_tokens < self.max_model_len:
             raise ValueError("max_num_batched_tokens must be >= max_model_len")
-        self.device = torch.device("cuda", 0)
 
         default_dtype = torch.get_default_dtype()
         torch.set_default_dtype(torch_dtype)
-        torch.set_default_device(self.device)
+        torch.set_default_device("cuda")
         self.model = Qwen3ForCausalLM(self.hf_config)
-        load_model(self.model, self.model_path)
+        load_model(self.model, model_path)
         self.sampler = Sampler()
         self.warmup_model()
         self.allocate_kv_cache()
@@ -67,6 +90,15 @@ class ModelRunner:
             self.capture_cudagraph()
         torch.set_default_device("cpu")
         torch.set_default_dtype(default_dtype)
+
+        if self.world_size > 1:
+            if self.rank == 0:
+                self.shm = SharedMemory(name=self.shm_name, create=True, size=shm_size_bytes)
+                dist.barrier()
+            else:
+                dist.barrier()
+                self.shm = SharedMemory(name=self.shm_name)
+                self.loop()
 
     def warmup_model(self) -> None:
         torch.cuda.empty_cache()
@@ -85,7 +117,7 @@ class ModelRunner:
         used = total - free
         peak = torch.cuda.memory_stats()["allocated_bytes.all.peak"]
         current = torch.cuda.memory_stats()["allocated_bytes.all.current"]
-        num_kv_heads = self.hf_config.num_key_value_heads
+        num_kv_heads = self.hf_config.num_key_value_heads // self.world_size
         head_dim = getattr(self.hf_config, "head_dim", self.hf_config.hidden_size // self.hf_config.num_attention_heads)
         block_bytes = (
             2
@@ -93,7 +125,7 @@ class ModelRunner:
             * self.block_size
             * num_kv_heads
             * head_dim
-            * torch.tensor([], dtype=self.hf_config.torch_dtype).element_size()
+            * self.hf_config.torch_dtype.itemsize
         )
         self.num_kvcache_blocks = int(total * self.gpu_memory_utilization - used - peak + current) // block_bytes
         if self.num_kvcache_blocks <= 0:
@@ -105,7 +137,6 @@ class ModelRunner:
             self.block_size,
             num_kv_heads,
             head_dim,
-            device=self.device,
             dtype=self.hf_config.torch_dtype,
         )
         layer_id = 0
@@ -181,7 +212,7 @@ class ModelRunner:
         return torch.tensor(temperatures, dtype=torch.float32, pin_memory=True).cuda(non_blocking=True)
 
     @torch.inference_mode()
-    def run_model(self, input_ids: torch.Tensor, positions: torch.Tensor, is_prefill: bool) -> torch.Tensor:
+    def run_model(self, input_ids: torch.Tensor, positions: torch.Tensor, is_prefill: bool) -> torch.Tensor | None:
         if is_prefill or self.enforce_eager or input_ids.size(0) > 512:
             return self.model.compute_logits(self.model(input_ids, positions))
 
@@ -200,11 +231,11 @@ class ModelRunner:
         graph.replay()
         return self.model.compute_logits(graph_vars["outputs"][:bs])
 
-    def run(self, seqs: list[Sequence], is_prefill: bool) -> list[int]:
+    def run(self, seqs: list[Sequence], is_prefill: bool) -> list[int] | None:
         input_ids, positions = self.prepare_prefill(seqs) if is_prefill else self.prepare_decode(seqs)
-        temperatures = self.prepare_sample(seqs)
+        temperatures = self.prepare_sample(seqs) if self.rank == 0 else None
         logits = self.run_model(input_ids, positions, is_prefill)
-        token_ids = self.sampler(logits, temperatures).tolist()
+        token_ids = self.sampler(logits, temperatures).tolist() if self.rank == 0 else None
         reset_context()
         return token_ids
 
@@ -212,12 +243,12 @@ class ModelRunner:
     def capture_cudagraph(self) -> None:
         max_bs = min(self.max_num_seqs, 512)
         max_num_blocks = (self.max_model_len + self.block_size - 1) // self.block_size
-        input_ids = torch.zeros(max_bs, dtype=torch.int64, device=self.device)
-        positions = torch.zeros(max_bs, dtype=torch.int64, device=self.device)
-        slot_mapping = torch.zeros(max_bs, dtype=torch.int32, device=self.device)
-        context_lens = torch.zeros(max_bs, dtype=torch.int32, device=self.device)
-        block_tables = torch.full((max_bs, max_num_blocks), -1, dtype=torch.int32, device=self.device)
-        outputs = torch.zeros(max_bs, self.hf_config.hidden_size, dtype=self.hf_config.torch_dtype, device=self.device)
+        input_ids = torch.zeros(max_bs, dtype=torch.int64)
+        positions = torch.zeros(max_bs, dtype=torch.int64)
+        slot_mapping = torch.zeros(max_bs, dtype=torch.int32)
+        context_lens = torch.zeros(max_bs, dtype=torch.int32)
+        block_tables = torch.full((max_bs, max_num_blocks), -1, dtype=torch.int32)
+        outputs = torch.zeros(max_bs, self.hf_config.hidden_size)
         self.graph_bs = [1, 2, 4, 8] + list(range(16, max_bs + 1, 16))
         self.graphs: dict[int, torch.cuda.CUDAGraph] = {}
         self.graph_pool = None
@@ -248,9 +279,47 @@ class ModelRunner:
             "outputs": outputs,
         }
 
+    def read_shm(self) -> tuple[str, list[object]]:
+        assert self.world_size > 1 and self.rank > 0
+        assert self.event is not None
+        self.event.wait()
+        n = int.from_bytes(self.shm.buf[0:4], "little")
+        method_name, *args = pickle.loads(self.shm.buf[4 : n + 4])
+        self.event.clear()
+        return method_name, args
+
+    def write_shm(self, method_name: str, *args: object) -> None:
+        assert self.world_size > 1 and self.rank == 0
+        assert isinstance(self.event, list)
+        data = pickle.dumps([method_name, *args])
+        n = len(data)
+        self.shm.buf[0:4] = n.to_bytes(4, "little")
+        self.shm.buf[4 : n + 4] = data
+        for event in self.event:
+            event.set()
+
+    def call(self, method_name: str, *args: object):
+        if self.world_size > 1 and self.rank == 0:
+            self.write_shm(method_name, *args)
+        method = getattr(self, method_name, None)
+        return method(*args)
+
+    def loop(self) -> None:
+        while True:
+            method_name, args = self.read_shm()
+            self.call(method_name, *args)
+            if method_name == "exit":
+                break
+
     def exit(self) -> None:
+        if self.world_size > 1:
+            self.shm.close()
+            dist.barrier()
+            if self.rank == 0:
+                self.shm.unlink()
         if not self.enforce_eager:
             del self.graphs, self.graph_pool, self.graph_vars
         del self.model, self.kv_cache
         torch.cuda.synchronize()
         torch.cuda.empty_cache()
+        dist.destroy_process_group()
