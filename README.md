@@ -122,7 +122,7 @@ make bench-lab4-s
 
 The student benchmark targets exist for parity with the lab structure, but they only make sense after you implement the corresponding lab.
 
-**Test Configuration:**
+**Historical Test Configuration:**
 - Hardware: RTX 4070 Laptop (8GB)
 - Model: Qwen3-0.6B
 - Total Requests:
@@ -154,7 +154,7 @@ Relationships:
 These request-level metrics are only meaningful for the scheduler-based labs (`lab3` and `lab4`).
 `lab1` and `lab2` still print the aggregate throughput-oriented metrics, but do not expose the same queueing/runtime breakdown.
 
-**Performance Results:**
+**Historical Performance Results:**
 The `vLLM` and `Nano-vLLM` results below use the 256-sequence benchmark configuration.
 Measured on: RTX 4070 Laptop GPU (8GB), `Qwen3-0.6B`, default benchmark workload with random input/output lengths in `100..1024`.
 
@@ -166,6 +166,34 @@ Measured on: RTX 4070 Laptop GPU (8GB), `Qwen3-0.6B`, default benchmark workload
 | Lab4-solution    | `make bench-lab4-s` | 133,966       | 98.19    | 1364.34               |
 | vLLM             | N/A                 | 133,966       | 98.37    | 1361.84               |
 | Nano-vLLM        | N/A                 | 133,966       | 93.41    | 1434.13               |
+
+### RTX 5070 Single-GPU Result
+
+Hardware: NVIDIA GeForce RTX 5070 (single GPU, 12GB)
+
+Model: `Qwen3-0.6B`
+
+Workload: default 256-sequence benchmark with random input/output lengths in `100..1024`
+
+**Throughput Summary:**
+
+| Inference Engine | Command             | Requested Output Tokens | Total Tokens | Time (s) | Output Throughput (tokens/s) | 
+|------------------|---------------------|--------------------------|--------------|----------|------------------------------|
+| Lab3-solution    | `make bench-lab3-s` | 133,966                  | 364,170      | 160.81   | 830.46                       |
+| Lab4-solution    | `make bench-lab4-s` | 133,966                  | 333,813      | 45.52    | 2934.00                      |
+| Nano-vLLM        | `python bench.py`   | 133,966                  | N/A          | 44.23    | 3029.02                      |
+
+**Request-Level Metrics:**
+
+| Metric                         | Mean (ms) | Median (ms) | P95 (ms) | P99 (ms) |
+|--------------------------------|-----------|-------------|----------|----------|
+| `request_queue_ms`             | 12821.86  | 13222.43    | 33077.76 | 36526.31 |
+| `request_compute_ttft_ms`      | 189.85    | 68.28       | 436.71   | 436.71   |
+| `request_ttft_ms`              | 13011.71  | 13289.78    | 33144.54 | 36592.90 |
+| `request_decode_ms`            | 12741.61  | 12243.62    | 24726.19 | 31166.52 |
+| `request_inference_ms`         | 12931.46  | 12477.69    | 25031.06 | 31340.81 |
+| `request_tpot_ms`              | 24.89     | 25.14       | 31.96    | 42.99    |
+| `request_e2e_ms`               | 25753.32  | 25727.34    | 43180.22 | 44236.63 |
 
 ### Prefix Benchmark
 
