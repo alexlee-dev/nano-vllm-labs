@@ -195,6 +195,43 @@ Workload: default 256-sequence benchmark with random input/output lengths in `10
 | `request_tpot_ms`              | 24.89     | 25.14       | 31.96    | 42.99    |
 | `request_e2e_ms`               | 25753.32  | 25727.34    | 43180.22 | 44236.63 |
 
+### RTX 5070 Qwen3-4B TP Result
+
+Hardware: NVIDIA GeForce RTX 5070 x2 (single node, 12GB each)
+
+Model: `Qwen3-4B`
+
+Workload: default 256-sequence benchmark with random input/output lengths in `100..1024`
+
+**Throughput Summary:**
+
+| Inference Engine | Command | Requested Output Tokens | Total Tokens | Time (s) | Output Throughput (tokens/s) |
+|------------------|---------|--------------------------|--------------|----------|------------------------------|
+| Lab5-solution (TP=1) | `python bench.py --lab 5 --solution --tensor-parallel-size 1` | 133,966 | 324,092 | 304.15 | 439.00 |
+| Lab5-solution (TP=2) | `make bench-lab5-s` | 133,966 | 329,208 | 112.25 | 1189.83 |
+
+`lab5` defaults to `Qwen3-4B` and `tensor_parallel_size=2`. Use
+`python bench.py --lab 5 --solution --tensor-parallel-size 1` for the single-GPU comparison run.
+
+**Request-Level Metrics:**
+
+| Metric | TP=1 Mean (ms) | TP=2 Mean (ms) |
+|--------|----------------|----------------|
+| `request_queue_ms` | 141350.31 | 33689.63 |
+| `request_compute_ttft_ms` | 199.43 | 961.81 |
+| `request_ttft_ms` | 141549.74 | 34651.44 |
+| `request_decode_ms` | 10701.95 | 29974.35 |
+| `request_inference_ms` | 10901.37 | 30936.16 |
+| `request_tpot_ms` | 20.80 | 59.85 |
+| `request_e2e_ms` | 152251.69 | 64625.78 |
+
+**Why TP Helps For Lab5**
+
+- `Qwen3-4B` is large enough that memory pressure and decode concurrency dominate the single-GPU path: `request_queue_ms` falls from `141350.31` to `33689.63` with TP=2.
+- TP=2 still makes each decoded token more expensive than TP=1 in steady-state terms: `request_tpot_ms` rises from `20.80` to `59.85`, and `request_decode_ms` rises from `10701.95` to `29974.35`.
+- Even so, the overall system wins because TP=1 cannot keep enough requests moving for this model size on one 12GB GPU. Splitting the model across both cards reduces queueing pressure enough to more than pay back the communication cost.
+- In short: for `lab5` on `Qwen3-4B`, TP=2 is worth it not because the per-token decode path gets cheaper, but because it restores enough concurrency and memory headroom to outweigh the communication cost.
+
 ### Prefix Benchmark
 
 Use the prefix benchmark to isolate the effect of prompt-prefix reuse:
