@@ -27,7 +27,7 @@ class Scheduler:
     def add(self, seq: Sequence) -> None:
         self.waiting.append(seq)
 
-    def schedule(self) -> tuple[list[Sequence], bool]:
+    def schedule_prefill(self) -> list[Sequence]:
         scheduled: list[Sequence] = []
         num_seqs = 0
         num_batched_tokens = 0
@@ -47,9 +47,13 @@ class Scheduler:
             self.waiting.popleft()
             self.running.append(seq)
             scheduled.append(seq)
-        if scheduled:
-            return scheduled, True
+        return scheduled
 
+    def schedule_decode(self) -> list[Sequence]:
+        scheduled: list[Sequence] = []
+        num_seqs = 0
+        if not self.running:
+            return scheduled
         while self.running and num_seqs < self.max_num_seqs:
             seq = self.running.popleft()
             while not self.block_manager.can_append(seq):
@@ -63,9 +67,15 @@ class Scheduler:
                 self.block_manager.may_append(seq)
                 scheduled.append(seq)
         if not scheduled:
-            return [], False
+            return scheduled
         self.running.extendleft(reversed(scheduled))
-        return scheduled, False
+        return scheduled
+
+    def schedule(self) -> tuple[list[Sequence], bool]:
+        scheduled = self.schedule_prefill()
+        if scheduled:
+            return scheduled, True
+        return self.schedule_decode(), False
 
     def preempt(self, seq: Sequence) -> None:
         seq.status = SequenceStatus.WAITING
