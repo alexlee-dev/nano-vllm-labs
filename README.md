@@ -15,7 +15,7 @@ The labs are cumulative:
 - Lab 3: paged KV cache, scheduler, and continuous batching
 - Lab 4: warmup-based KV sizing, prefix reuse, and CUDA Graph decode on one GPU
 - Lab 5: single-node multi-GPU tensor parallel serving for `Qwen3-4B`
-- Lab 6: replicated data parallel serving across multiple full model replicas
+- Lab 6: single-node replicated data parallel serving across full dense model replicas
 
 Current scope:
 
@@ -23,6 +23,8 @@ Current scope:
 - Lab 5 is single-node tensor parallel
 - Lab 6 is single-node replicated data parallel
 - Multi-node execution and pipeline parallelism are still out of scope
+
+The project is intentionally educational rather than production-complete. If you want the fuller production-oriented runtime, refer directly to the original `nano-vllm` project.
 
 ## Lab Overview
 
@@ -64,6 +66,7 @@ For Lab 6, use a local `Qwen3-4B` path with replicated data parallel workers:
 
 ```bash
 python example.py --lab 6 --solution --model ~/huggingface/Qwen3-4B/ --data-parallel-size 2
+make run-lab6-s
 make bench-lab6-s
 ```
 
@@ -102,7 +105,7 @@ huggingface-cli download --resume-download Qwen/Qwen3-0.6B \
   --local-dir-use-symlinks False
 ```
 
-Download `Qwen3-4B` for Lab 5:
+Download `Qwen3-4B` for Labs 5-6:
 
 ```bash
 huggingface-cli download --resume-download Qwen/Qwen3-4B \
@@ -130,17 +133,6 @@ make run-lab1
 make run-lab2
 make run-lab3
 make run-lab4
-```
-
-Reference solution targets:
-
-```bash
-make run-lab1-s
-make run-lab2-s
-make run-lab3-s
-make run-lab4-s
-make run-lab5-s
-make run-lab6-s
 ```
 
 Direct entrypoints:
@@ -171,7 +163,7 @@ make bench-prefix-lab3-s
 make bench-prefix-lab4-s
 ```
 
-Request-level metrics are meaningful for the scheduler-based labs:
+Request-level metrics are meaningful for the scheduler-based labs.
 
 For `lab3` through `lab6`, the benchmark also prints request-level latency summaries in the form:
 `request_<metric>: count=... mean=... median=... p95=... p99=...`
@@ -246,45 +238,16 @@ Request-level summary for `Lab4-solution`:
 | `request_tpot_ms`         | 24.89     | 25.14       | 31.96    | 42.99    |
 | `request_e2e_ms`          | 25753.32  | 25727.34    | 43180.22 | 44236.63 |
 
-### RTX 5070 Lab6 Data Parallel Result
-
-Hardware: NVIDIA GeForce RTX 5070 x2 (single node, 12GB each)
-
-Workload: default 256-sequence benchmark with random input/output lengths in `100..1024`
-
-**Throughput Summary:**
-
-| Model | Inference Engine | Command | Requested Output Tokens | Total Tokens | Time (s) | Output Throughput (tokens/s) | Total Throughput (tokens/s) |
-|-------|------------------|---------|--------------------------|--------------|----------|------------------------------|-----------------------------|
-| `Qwen3-0.6B` | Lab6-solution (DP=2) | `python bench.py --lab 6 --solution --data-parallel-size 2` | 133,966 | 356,816 | 24.78 | 5389.65 | 14397.46 |
-| `Qwen3-4B` | Lab6-solution (DP=2) | `python bench.py --lab 6 --solution --model ~/huggingface/Qwen3-4B --data-parallel-size 2` | 133,966 | 299,549 | 645.61 | 206.82 | 463.98 |
-
-`lab6_solution` implements replicated data parallelism for dense models. For backwards compatibility,
-`--tensor-parallel-size 2` is accepted by the lab6 solution as DP=2, but new runs should use
-`--data-parallel-size 2`.
-
-**Qwen3-4B DP=2 Request-Level Metrics:**
-
-| Metric                         | Mean (ms) | Median (ms) | P95 (ms) | P99 (ms) |
-|--------------------------------|-----------|-------------|----------|----------|
-| `request_queue_ms`             | 312303.70 | 321213.20   | 593169.79 | 621317.77 |
-| `request_compute_ttft_ms`      | 172.91    | 137.80      | 267.62   | 1150.58 |
-| `request_ttft_ms`              | 312476.61 | 321369.64   | 593409.14 | 621483.10 |
-| `request_decode_ms`            | 12350.95  | 12307.16    | 25191.51 | 29714.04 |
-| `request_inference_ms`         | 12523.86  | 12442.95    | 25421.03 | 29908.49 |
-| `request_tpot_ms`              | 24.73     | 20.26       | 44.80    | 65.27 |
-| `request_e2e_ms`               | 324827.56 | 335803.30   | 607565.55 | 629283.97 |
-
-### RTX 5070 Qwen3-4B Multi-GPU Result
+### RTX 5070 x2, Single-Node TP, Qwen3-4B
 
 Hardware: NVIDIA GeForce RTX 5070 x2, 12GB each
 
 This is a single-machine tensor-parallel comparison, not a multi-node run.
 
-| Inference Engine     | Command                                                            | Requested Output Tokens | Total Tokens | Time (s) | Output Throughput (tokens/s) |
-|----------------------|--------------------------------------------------------------------|--------------------------|--------------|----------|------------------------------|
-| Lab5-solution (TP=1) | `python bench.py --lab 5 --solution --tensor-parallel-size 1`      | 133,966                  | 324,092      | 304.15   | 439.00                       |
-| Lab5-solution (TP=2) | `make bench-lab5-s`                                                | 133,966                  | 329,208      | 112.25   | 1189.83                      |
+| Inference Engine     | Command                                                       | Requested Output Tokens | Total Tokens | Time (s) | Output Throughput (tokens/s) |
+|----------------------|---------------------------------------------------------------|--------------------------|--------------|----------|------------------------------|
+| Lab5-solution (TP=1) | `python bench.py --lab 5 --solution --tensor-parallel-size 1` | 133,966                  | 324,092      | 304.15   | 439.00                       |
+| Lab5-solution (TP=2) | `make bench-lab5-s`                                           | 133,966                  | 329,208      | 112.25   | 1189.83                      |
 
 Mean request-level comparison:
 
@@ -300,20 +263,34 @@ Mean request-level comparison:
 
 Why TP helps for Lab 5:
 
-Cross-lab throughput comparison:
-
-| Inference Engine | Command | Requested Output Tokens | Total Tokens | Time (s) | Output Throughput (tokens/s) |
-|------------------|---------|--------------------------|--------------|----------|------------------------------|
-| Lab6-solution (DP=2) | `python bench.py --lab 6 --solution --model ~/huggingface/Qwen3-4B --data-parallel-size 2` | 133,966 | 299,549 | 645.61 | 206.82 |
-| Lab5-solution (TP=1) | `python bench.py --lab 5 --solution --tensor-parallel-size 1` | 133,966 | 324,092 | 304.15 | 439.00 |
-| Lab5-solution (TP=2) | `make bench-lab5-s` | 133,966 | 329,208 | 112.25 | 1189.83 |
-
-The Lab6 DP row is replicated dense data parallelism: each GPU holds a full `Qwen3-4B` copy.
-The Lab5 TP rows use tensor parallelism: the model is sharded across GPUs.
-
 - `Qwen3-4B` is large enough that single-GPU memory pressure dominates queueing behavior.
 - TP=2 makes each steady-state decode token more expensive, but it reduces queue pressure enough to win end to end.
 - The main benefit is restored concurrency and model fit, not a cheaper per-token decode path.
+
+### RTX 5070 x2, Single-Node DP, Qwen3-0.6B and Qwen3-4B
+
+Hardware: NVIDIA GeForce RTX 5070 x2, 12GB each
+
+This is replicated dense data parallelism: each GPU holds a full model copy and serves independent requests.
+
+| Model       | Inference Engine     | Command                                                                    | Requested Output Tokens | Total Tokens | Time (s) | Output Throughput (tokens/s) | Total Throughput (tokens/s) |
+|-------------|----------------------|----------------------------------------------------------------------------|--------------------------|--------------|----------|------------------------------|-----------------------------|
+| `Qwen3-0.6B` | Lab6-solution (DP=2) | `python bench.py --lab 6 --solution --data-parallel-size 2`                | 133,966                  | 356,816      | 24.78    | 5389.65                      | 14397.46                    |
+| `Qwen3-4B`   | Lab6-solution (DP=2) | `python bench.py --lab 6 --solution --model ~/huggingface/Qwen3-4B --data-parallel-size 2` | 133,966 | 299,549 | 645.61 | 206.82 | 463.98 |
+
+`lab6_solution` implements replicated data parallelism for dense models. For backwards compatibility, `--tensor-parallel-size 2` is accepted as DP=2, but new runs should use `--data-parallel-size 2`.
+
+Request-level summary for `Qwen3-4B` on `Lab6-solution (DP=2)`:
+
+| Metric                    | Mean (ms) | Median (ms) | P95 (ms) | P99 (ms) |
+|---------------------------|-----------|-------------|----------|----------|
+| `request_queue_ms`        | 312303.70 | 321213.20   | 593169.79 | 621317.77 |
+| `request_compute_ttft_ms` | 172.91    | 137.80      | 267.62   | 1150.58 |
+| `request_ttft_ms`         | 312476.61 | 321369.64   | 593409.14 | 621483.10 |
+| `request_decode_ms`       | 12350.95  | 12307.16    | 25191.51 | 29714.04 |
+| `request_inference_ms`    | 12523.86  | 12442.95    | 25421.03 | 29908.49 |
+| `request_tpot_ms`         | 24.73     | 20.26       | 44.80    | 65.27 |
+| `request_e2e_ms`          | 324827.56 | 335803.30   | 607565.55 | 629283.97 |
 
 ## Prefix Benchmark
 
