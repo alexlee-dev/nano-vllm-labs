@@ -214,6 +214,17 @@ BENCH_SPECS: dict[tuple[int, bool], BenchSpec] = {
         extra_fields=lambda args, model, workload: [],
         prefill_tokens_for_step=lambda seqs: sum(seq.num_prompt_tokens - seq.num_cached_tokens for seq in seqs),
     ),
+    (6, True): make_scheduler_spec(
+        lab=6,
+        solution=True,
+        module_name="nanovllm_labs.lab6_solution.engine.llm_engine",
+        dtype_choices=("auto", "float16", "bfloat16", "float32"),
+        include_max_model_len=True,
+        include_enforce_eager=True,
+        kwargs_builder=_lab4_kwargs,
+        extra_fields=lambda args, model, workload: [],
+        prefill_tokens_for_step=lambda seqs: sum(seq.num_prompt_tokens - seq.num_cached_tokens for seq in seqs),
+    ),
 }
 
 

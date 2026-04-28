@@ -1,6 +1,6 @@
 # nano-vllm-labs
 
-Step-by-step labs for learning `nano-vllm`, starting from a minimal autoregressive loop and ending at a single-node tensor-parallel serving path.
+Step-by-step labs for learning `nano-vllm`, starting from a minimal autoregressive loop and ending at small single-node multi-GPU serving paths.
 
 This repository is an unofficial educational lab series based on `nano-vllm`.
 Original `nano-vllm` code is Copyright (c) 2025 Xingkai Yu and licensed under the MIT License.
@@ -15,12 +15,23 @@ The labs are cumulative:
 - Lab 3: paged KV cache, scheduler, and continuous batching
 - Lab 4: warmup-based KV sizing, prefix reuse, and CUDA Graph decode on one GPU
 - Lab 5: single-node multi-GPU tensor parallel serving for `Qwen3-4B`
+- Lab 6: replicated data parallel serving across multiple full model replicas
 
 Current scope:
 
 - Labs 1-4 are single-GPU
 - Lab 5 is single-node tensor parallel
-- Multi-node execution, data parallelism, and pipeline parallelism are still out of scope
+- Lab 6 is single-node replicated data parallel
+- Multi-node execution and pipeline parallelism are still out of scope
+
+## Lab Overview
+
+- Lab 1 builds the smallest end-to-end LLM inference loop: load a model and tokenizer, generate one token at a time, and decode the result.
+- Lab 2 keeps the same simple engine structure, but replaces the Hugging Face model with a hand-written Qwen3 forward pass and custom safetensors weight loading.
+- Lab 3 introduces runtime-oriented optimizations: paged KV cache management, request scheduling, and continuous batching across many active sequences.
+- Lab 4 keeps the Lab 3 paged-KV runtime, then pushes the single-GPU execution path further with cleaner runtime state tracking, warmup-based memory sizing, and CUDA Graph capture for decode batches.
+- Lab 5 adds tensor parallelism for sharding a larger dense model across GPUs.
+- Lab 6 adds replicated data parallelism so multiple GPUs can serve independent requests concurrently.
 
 ## Quickstart
 
@@ -48,6 +59,13 @@ make bench-lab5-s
 ```
 
 `example.py` defaults Lab 5 to `tensor_parallel_size=2` and `Qwen3-4B` if you do not override them.
+
+For Lab 6, use a local `Qwen3-4B` path with replicated data parallel workers:
+
+```bash
+python example.py --lab 6 --solution --model ~/huggingface/Qwen3-4B/ --data-parallel-size 2
+make bench-lab6-s
+```
 
 ## Environment Setup
 
@@ -94,7 +112,18 @@ huggingface-cli download --resume-download Qwen/Qwen3-4B \
 
 ## Run
 
-Student targets:
+If you want a working reference implementation, use the solution targets:
+
+```bash
+make run-lab1-s
+make run-lab2-s
+make run-lab3-s
+make run-lab4-s
+make run-lab5-s
+make run-lab6-s
+```
+
+If you want to work through the exercises, use the matching student targets:
 
 ```bash
 make run-lab1
@@ -111,6 +140,7 @@ make run-lab2-s
 make run-lab3-s
 make run-lab4-s
 make run-lab5-s
+make run-lab6-s
 ```
 
 Direct entrypoints:
@@ -118,6 +148,7 @@ Direct entrypoints:
 ```bash
 .venv/bin/python example.py --lab 4 --solution --model ~/huggingface/Qwen3-0.6B/
 .venv/bin/python example.py --lab 5 --solution --model ~/huggingface/Qwen3-4B/ --tensor-parallel-size 2
+.venv/bin/python example.py --lab 6 --solution --data-parallel-size 2
 ```
 
 ## Benchmark
@@ -130,6 +161,7 @@ make bench-lab2-s
 make bench-lab3-s
 make bench-lab4-s
 make bench-lab5-s
+make bench-lab6-s
 ```
 
 Prefix benchmarks:
@@ -140,6 +172,9 @@ make bench-prefix-lab4-s
 ```
 
 Request-level metrics are meaningful for the scheduler-based labs:
+
+For `lab3` through `lab6`, the benchmark also prints request-level latency summaries in the form:
+`request_<metric>: count=... mean=... median=... p95=... p99=...`
 
 - `request_queue_ms`
 - `request_compute_ttft_ms`
@@ -165,6 +200,9 @@ Relationships:
 - `request_inference_ms = request_compute_ttft_ms + request_decode_ms`
 
 ## Historical Results
+
+These request-level metrics are only meaningful for the scheduler-based labs (`lab3` through `lab6`).
+`lab1` and `lab2` still print the aggregate throughput-oriented metrics, but do not expose the same queueing/runtime breakdown.
 
 ### RTX 4070 Laptop, Qwen3-0.6B
 
@@ -208,7 +246,7 @@ Request-level summary for `Lab4-solution`:
 | `request_tpot_ms`         | 24.89     | 25.14       | 31.96    | 42.99    |
 | `request_e2e_ms`          | 25753.32  | 25727.34    | 43180.22 | 44236.63 |
 
-### RTX 5070 Lab4 Data Parallel Result
+### RTX 5070 Lab6 Data Parallel Result
 
 Hardware: NVIDIA GeForce RTX 5070 x2 (single node, 12GB each)
 
@@ -218,11 +256,11 @@ Workload: default 256-sequence benchmark with random input/output lengths in `10
 
 | Model | Inference Engine | Command | Requested Output Tokens | Total Tokens | Time (s) | Output Throughput (tokens/s) | Total Throughput (tokens/s) |
 |-------|------------------|---------|--------------------------|--------------|----------|------------------------------|-----------------------------|
-| `Qwen3-0.6B` | Lab4-solution (DP=2) | `python bench.py --lab 4 --solution --data-parallel-size 2` | 133,966 | 356,816 | 24.78 | 5389.65 | 14397.46 |
-| `Qwen3-4B` | Lab4-solution (DP=2) | `python bench.py --lab 4 --solution --model ~/huggingface/Qwen3-4B --data-parallel-size 2` | 133,966 | 299,549 | 645.61 | 206.82 | 463.98 |
+| `Qwen3-0.6B` | Lab6-solution (DP=2) | `python bench.py --lab 6 --solution --data-parallel-size 2` | 133,966 | 356,816 | 24.78 | 5389.65 | 14397.46 |
+| `Qwen3-4B` | Lab6-solution (DP=2) | `python bench.py --lab 6 --solution --model ~/huggingface/Qwen3-4B --data-parallel-size 2` | 133,966 | 299,549 | 645.61 | 206.82 | 463.98 |
 
-`lab4_solution` implements replicated data parallelism for dense models. For backwards compatibility,
-`--tensor-parallel-size 2` is accepted by the lab4 solution as DP=2, but new runs should use
+`lab6_solution` implements replicated data parallelism for dense models. For backwards compatibility,
+`--tensor-parallel-size 2` is accepted by the lab6 solution as DP=2, but new runs should use
 `--data-parallel-size 2`.
 
 **Qwen3-4B DP=2 Request-Level Metrics:**
@@ -262,6 +300,17 @@ Mean request-level comparison:
 
 Why TP helps for Lab 5:
 
+Cross-lab throughput comparison:
+
+| Inference Engine | Command | Requested Output Tokens | Total Tokens | Time (s) | Output Throughput (tokens/s) |
+|------------------|---------|--------------------------|--------------|----------|------------------------------|
+| Lab6-solution (DP=2) | `python bench.py --lab 6 --solution --model ~/huggingface/Qwen3-4B --data-parallel-size 2` | 133,966 | 299,549 | 645.61 | 206.82 |
+| Lab5-solution (TP=1) | `python bench.py --lab 5 --solution --tensor-parallel-size 1` | 133,966 | 324,092 | 304.15 | 439.00 |
+| Lab5-solution (TP=2) | `make bench-lab5-s` | 133,966 | 329,208 | 112.25 | 1189.83 |
+
+The Lab6 DP row is replicated dense data parallelism: each GPU holds a full `Qwen3-4B` copy.
+The Lab5 TP rows use tensor parallelism: the model is sharded across GPUs.
+
 - `Qwen3-4B` is large enough that single-GPU memory pressure dominates queueing behavior.
 - TP=2 makes each steady-state decode token more expensive, but it reduces queue pressure enough to win end to end.
 - The main benefit is restored concurrency and model fit, not a cheaper per-token decode path.
@@ -285,6 +334,7 @@ The most important outputs are:
 - [Lab 3](nanovllm_labs/lab3/README.md)
 - [Lab 4](nanovllm_labs/lab4/engine/README.md)
 - [Lab 5](nanovllm_labs/lab5/README.md)
+- [Lab 6](nanovllm_labs/lab6_solution/README.md)
 
 ## Star History
 
