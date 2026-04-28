@@ -79,6 +79,7 @@ def _lab4_kwargs(args: argparse.Namespace) -> dict[str, Any]:
         "enforce_eager": args.enforce_eager,
         "dtype": args.dtype,
         "tensor_parallel_size": args.tensor_parallel_size,
+        "data_parallel_size": args.data_parallel_size,
     }
 
 

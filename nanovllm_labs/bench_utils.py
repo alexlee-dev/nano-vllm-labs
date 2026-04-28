@@ -157,22 +157,53 @@ def run_scheduler_bench(
         if not seqs:
             break
 
-        step_tokens = prefill_tokens_for_step(seqs) if is_prefill else (
-            decode_tokens_for_step(seqs) if decode_tokens_for_step is not None else len(seqs)
-        )
+        prefill_seqs = [
+            seq for seq in seqs
+            if getattr(seq, "scheduled_is_prefill", is_prefill)
+        ]
+        decode_seqs = [
+            seq for seq in seqs
+            if not getattr(seq, "scheduled_is_prefill", is_prefill)
+        ]
+        async_prefill_tokens = getattr(seqs[0], "_step_prefill_tokens", None)
+        async_decode_tokens = getattr(seqs[0], "_step_decode_tokens", None)
+        if async_prefill_tokens is not None:
+            step_prefill_tokens = async_prefill_tokens
+        elif prefill_seqs:
+            step_prefill_tokens = prefill_tokens_for_step(prefill_seqs)
+        else:
+            step_prefill_tokens = 0
+        if async_decode_tokens is not None:
+            step_decode_tokens = async_decode_tokens
+        elif decode_seqs:
+            step_decode_tokens = (
+                decode_tokens_for_step(decode_seqs)
+                if decode_tokens_for_step is not None
+                else len(decode_seqs)
+            )
+        else:
+            step_decode_tokens = 0
 
-        step_t0 = perf_counter()
+        async_step_start_ts = getattr(seqs[0], "_step_start_ts", None)
+        async_step_end_ts = getattr(seqs[0], "_step_end_ts", None)
+        step_t0 = async_step_start_ts if async_step_start_ts is not None else perf_counter()
         for seq in seqs:
             if seq.scheduled_ts is None:
                 seq.scheduled_ts = step_t0
-            if is_prefill and seq.cached_prompt_tokens is None:
+            if getattr(seq, "scheduled_is_prefill", is_prefill) and seq.cached_prompt_tokens is None:
                 seq.cached_prompt_tokens = getattr(seq, "num_cached_tokens", 0)
-        prev_num_completion_tokens = {seq.seq_id: seq.num_completion_tokens for seq in seqs}
+        prev_num_completion_tokens = {
+            seq.seq_id: getattr(seq, "_prev_num_completion_tokens", seq.num_completion_tokens)
+            for seq in seqs
+        }
         token_ids = run_step(seqs, is_prefill)
         finished_outputs = postprocess(seqs, token_ids)
-        step_end_t = perf_counter()
+        step_end_t = async_step_end_ts if async_step_end_ts is not None else perf_counter()
         step_dt = step_end_t - step_t0
-        stats.record(is_prefill=is_prefill, tokens=step_tokens, dt=step_dt)
+        if step_prefill_tokens:
+            stats.record(is_prefill=True, tokens=step_prefill_tokens, dt=step_dt)
+        if step_decode_tokens:
+            stats.record(is_prefill=False, tokens=step_decode_tokens, dt=step_dt)
         finished_ids = {seq_id for seq_id, _ in finished_outputs}
         for seq in seqs:
             update_token_timestamps(seq, step_end_t, prev_num_completion_tokens[seq.seq_id], stats)

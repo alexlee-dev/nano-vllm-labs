@@ -208,7 +208,36 @@ Request-level summary for `Lab4-solution`:
 | `request_tpot_ms`         | 24.89     | 25.14       | 31.96    | 42.99    |
 | `request_e2e_ms`          | 25753.32  | 25727.34    | 43180.22 | 44236.63 |
 
-### RTX 5070 x2, Single-Node TP, Qwen3-4B
+### RTX 5070 Lab4 Data Parallel Result
+
+Hardware: NVIDIA GeForce RTX 5070 x2 (single node, 12GB each)
+
+Workload: default 256-sequence benchmark with random input/output lengths in `100..1024`
+
+**Throughput Summary:**
+
+| Model | Inference Engine | Command | Requested Output Tokens | Total Tokens | Time (s) | Output Throughput (tokens/s) | Total Throughput (tokens/s) |
+|-------|------------------|---------|--------------------------|--------------|----------|------------------------------|-----------------------------|
+| `Qwen3-0.6B` | Lab4-solution (DP=2) | `python bench.py --lab 4 --solution --data-parallel-size 2` | 133,966 | 356,816 | 24.78 | 5389.65 | 14397.46 |
+| `Qwen3-4B` | Lab4-solution (DP=2) | `python bench.py --lab 4 --solution --model ~/huggingface/Qwen3-4B --data-parallel-size 2` | 133,966 | 299,549 | 645.61 | 206.82 | 463.98 |
+
+`lab4_solution` implements replicated data parallelism for dense models. For backwards compatibility,
+`--tensor-parallel-size 2` is accepted by the lab4 solution as DP=2, but new runs should use
+`--data-parallel-size 2`.
+
+**Qwen3-4B DP=2 Request-Level Metrics:**
+
+| Metric                         | Mean (ms) | Median (ms) | P95 (ms) | P99 (ms) |
+|--------------------------------|-----------|-------------|----------|----------|
+| `request_queue_ms`             | 312303.70 | 321213.20   | 593169.79 | 621317.77 |
+| `request_compute_ttft_ms`      | 172.91    | 137.80      | 267.62   | 1150.58 |
+| `request_ttft_ms`              | 312476.61 | 321369.64   | 593409.14 | 621483.10 |
+| `request_decode_ms`            | 12350.95  | 12307.16    | 25191.51 | 29714.04 |
+| `request_inference_ms`         | 12523.86  | 12442.95    | 25421.03 | 29908.49 |
+| `request_tpot_ms`              | 24.73     | 20.26       | 44.80    | 65.27 |
+| `request_e2e_ms`               | 324827.56 | 335803.30   | 607565.55 | 629283.97 |
+
+### RTX 5070 Qwen3-4B Multi-GPU Result
 
 Hardware: NVIDIA GeForce RTX 5070 x2, 12GB each
 

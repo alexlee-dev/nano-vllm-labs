@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import atexit
 import os
+import queue
+import threading
+from time import perf_counter
 from dataclasses import dataclass
 
 import torch
@@ -15,90 +18,160 @@ from nanovllm_labs.lab4_solution.engine.sequence import Sequence
 from nanovllm_labs.sampling_params import SamplingParams
 
 
-def _snapshot_sequence(seq: Sequence) -> tuple[int, int, list[int]]:
-    return seq.seq_id, seq.num_cached_tokens, list(seq.block_table)
+@dataclass
+class _StepResult:
+    seqs: list[Sequence]
+    token_ids: list[int]
+    finished: list[tuple[int, list[int]]]
+    is_prefill: bool
+    prefill_tokens: int
+    decode_tokens: int
+    start_ts: float
+    end_ts: float
 
 
-def _worker_loop(conn, runner_kwargs: dict[str, object]) -> None:
-    model_runner = ModelRunner(**runner_kwargs)
-    seqs: dict[int, Sequence] = {}
+def _worker_loop(
+    conn,
+    rank: int,
+    runner_kwargs: dict[str, object],
+    scheduler_kwargs: dict[str, object],
+) -> None:
+    model_runner: ModelRunner | None = None
     try:
+        model_runner = ModelRunner(**runner_kwargs, device_id=rank)
+        scheduler = Scheduler(
+            **scheduler_kwargs,
+            block_manager=BlockManager(model_runner.num_kvcache_blocks, runner_kwargs["block_size"]),
+        )
+        seqs: dict[int, Sequence] = {}
+        conn.send(("ready", model_runner.num_kvcache_blocks))
+
         while True:
             method, payload = conn.recv()
             if method == "add":
                 seq = payload
+                seq.dp_rank = rank
                 seqs[seq.seq_id] = seq
+                scheduler.add(seq)
                 conn.send(None)
                 continue
-            if method == "run":
-                snapshots, is_prefill = payload
-                local_seqs: list[Sequence] = []
-                for seq_id, num_cached_tokens, block_table in snapshots:
-                    seq = seqs[seq_id]
-                    seq.num_cached_tokens = num_cached_tokens
-                    seq.block_table = block_table
-                    local_seqs.append(seq)
-                token_ids = model_runner.run(local_seqs, is_prefill=is_prefill)
-                for seq, token_id in zip(local_seqs, token_ids):
-                    seq.append_token(token_id)
-                conn.send(token_ids)
+
+            if method == "step":
+                scheduled = scheduler.schedule_prefill()
+                scheduled_is_prefill = bool(scheduled)
+                if not scheduled:
+                    scheduled = scheduler.schedule_decode()
+                    scheduled_is_prefill = False
+                snapshots = [
+                    (
+                        seq.seq_id,
+                        seq.num_cached_tokens,
+                        seq.num_completion_tokens,
+                        scheduled_is_prefill,
+                    )
+                    for seq in scheduled
+                ]
+                prefill_tokens = (
+                    sum(len(seq) - seq.num_cached_tokens for seq in scheduled)
+                    if scheduled_is_prefill
+                    else 0
+                )
+                decode_tokens = 0 if scheduled_is_prefill else len(scheduled)
+                start_ts = perf_counter()
+                token_ids = (
+                    model_runner.run(scheduled, is_prefill=scheduled_is_prefill)
+                    if scheduled
+                    else []
+                )
+                finished = scheduler.postprocess(scheduled, token_ids)
+                end_ts = perf_counter()
+                conn.send(
+                    (
+                        snapshots,
+                        token_ids,
+                        [
+                            (seq_id, out_token_ids, seqs[seq_id].finish_reason)
+                            for seq_id, out_token_ids in finished
+                        ],
+                        prefill_tokens,
+                        decode_tokens,
+                        start_ts,
+                        end_ts,
+                    )
+                )
                 continue
+
             if method == "exit":
                 conn.send(None)
                 break
+
             raise ValueError(f"Unknown worker method: {method}")
     finally:
-        model_runner.exit()
+        if model_runner is not None:
+            model_runner.exit()
         conn.close()
 
 
-class _RunnerClient:
+class _RankClient:
+    rank: int
+
     def add_sequence(self, seq: Sequence) -> None:
         raise NotImplementedError
 
-    def run_step(self, seqs: list[Sequence], is_prefill: bool) -> list[int]:
+    def step(self) -> _StepResult | None:
         raise NotImplementedError
 
     def exit(self) -> None:
         raise NotImplementedError
 
 
-class _LocalRunnerClient(_RunnerClient):
-    def __init__(self, runner: ModelRunner) -> None:
-        self.runner = runner
+@dataclass
+class _RemoteRankClient(_RankClient):
+    rank: int
+    process: mp.Process
+    conn: object
+    seqs: dict[int, Sequence]
 
-    def add_sequence(self, seq: Sequence) -> None:
-        del seq
-
-    def run_step(self, seqs: list[Sequence], is_prefill: bool) -> list[int]:
-        return self.runner.run(seqs, is_prefill=is_prefill)
-
-    def exit(self) -> None:
-        self.runner.exit()
-
-
-class _RemoteRunnerClient(_RunnerClient):
-    def __init__(self, process: mp.Process, conn) -> None:
-        self.process = process
-        self.conn = conn
-
-    def add_sequence(self, seq: Sequence) -> None:
-        self.conn.send(("add", seq))
-        self.conn.recv()
-
-    def send_run(self, seqs: list[Sequence], is_prefill: bool) -> None:
-        snapshots = [_snapshot_sequence(seq) for seq in seqs]
-        self.conn.send(("run", (snapshots, is_prefill)))
-
-    def recv_run(self) -> list[int]:
+    def _call(self, method: str, payload: object = None):
+        self.conn.send((method, payload))
         return self.conn.recv()
 
-    def run_step(self, seqs: list[Sequence], is_prefill: bool) -> list[int]:
-        self.send_run(seqs, is_prefill)
-        return self.recv_run()
+    def add_sequence(self, seq: Sequence) -> None:
+        seq.dp_rank = self.rank
+        self.seqs[seq.seq_id] = seq
+        self._call("add", seq)
+
+    def step(self) -> _StepResult | None:
+        snapshots, token_ids, finished, prefill_tokens, decode_tokens, start_ts, end_ts = self._call("step")
+        if not snapshots:
+            return None
+        scheduled: list[Sequence] = []
+        is_prefill = False
+        for seq_id, num_cached_tokens, prev_num_completion_tokens, seq_is_prefill in snapshots:
+            seq = self.seqs[seq_id]
+            seq.num_cached_tokens = num_cached_tokens
+            seq.scheduled_is_prefill = seq_is_prefill
+            seq._prev_num_completion_tokens = prev_num_completion_tokens
+            scheduled.append(seq)
+            is_prefill = seq_is_prefill
+        for seq, token_id in zip(scheduled, token_ids):
+            seq.append_token(token_id)
+        for seq_id, _out_token_ids, finish_reason in finished:
+            self.seqs[seq_id].finish_reason = finish_reason
+        return _StepResult(
+            seqs=scheduled,
+            token_ids=token_ids,
+            finished=[(seq_id, out_token_ids) for seq_id, out_token_ids, _ in finished],
+            is_prefill=is_prefill,
+            prefill_tokens=prefill_tokens,
+            decode_tokens=decode_tokens,
+            start_ts=start_ts,
+            end_ts=end_ts,
+        )
 
     def exit(self) -> None:
         if not self.process.is_alive():
+            self.conn.close()
             return
         self.conn.send(("exit", None))
         self.conn.recv()
@@ -107,30 +180,48 @@ class _RemoteRunnerClient(_RunnerClient):
 
 
 @dataclass
-class _DeviceWorker:
-    device_id: int
-    runner: _RunnerClient
+class _LocalRankClient(_RankClient):
+    rank: int
+    runner: ModelRunner
     scheduler: Scheduler
 
-    def pending_load(self) -> int:
-        return len(self.scheduler.waiting) + len(self.scheduler.running)
-
-    def add(self, seq: Sequence) -> None:
-        seq.dp_worker_id = self.device_id
+    def add_sequence(self, seq: Sequence) -> None:
+        seq.dp_rank = self.rank
         self.scheduler.add(seq)
-        self.runner.add_sequence(seq)
 
-    def is_finished(self) -> bool:
-        return self.scheduler.is_finished()
-
-    def schedule_prefill(self) -> list[Sequence]:
-        return self.scheduler.schedule_prefill()
-
-    def schedule_decode(self) -> list[Sequence]:
-        return self.scheduler.schedule_decode()
-
-    def postprocess(self, seqs: list[Sequence], token_ids: list[int]) -> list[tuple[int, list[int]]]:
-        return self.scheduler.postprocess(seqs, token_ids)
+    def step(self) -> _StepResult | None:
+        scheduled = self.scheduler.schedule_prefill()
+        is_prefill = bool(scheduled)
+        if not scheduled:
+            scheduled = self.scheduler.schedule_decode()
+            is_prefill = False
+        if not scheduled:
+            return None
+        for seq in scheduled:
+            seq.scheduled_is_prefill = is_prefill
+        prev_counts = {seq.seq_id: seq.num_completion_tokens for seq in scheduled}
+        prefill_tokens = (
+            sum(len(seq) - seq.num_cached_tokens for seq in scheduled)
+            if is_prefill
+            else 0
+        )
+        decode_tokens = 0 if is_prefill else len(scheduled)
+        start_ts = perf_counter()
+        token_ids = self.runner.run(scheduled, is_prefill=is_prefill)
+        finished = self.scheduler.postprocess(scheduled, token_ids)
+        end_ts = perf_counter()
+        for seq in scheduled:
+            seq._prev_num_completion_tokens = prev_counts[seq.seq_id]
+        return _StepResult(
+            seqs=scheduled,
+            token_ids=token_ids,
+            finished=finished,
+            is_prefill=is_prefill,
+            prefill_tokens=prefill_tokens,
+            decode_tokens=decode_tokens,
+            start_ts=start_ts,
+            end_ts=end_ts,
+        )
 
     def exit(self) -> None:
         self.runner.exit()
@@ -149,28 +240,38 @@ class LLMEngine:
         enforce_eager: bool = False,
         dtype: str = "auto",
         tensor_parallel_size: int = 1,
+        data_parallel_size: int = 1,
         **_: object,
     ) -> None:
         if device not in {"auto", "cuda"}:
             raise ValueError(f"Unsupported device={device!r}")
+        if data_parallel_size == 1 and tensor_parallel_size > 1:
+            data_parallel_size = tensor_parallel_size
+        elif tensor_parallel_size != 1:
+            raise ValueError(
+                "lab4_solution implements replicated data parallelism only; "
+                "use data_parallel_size for multiple GPUs."
+            )
+        if data_parallel_size < 1:
+            raise ValueError("data_parallel_size must be >= 1")
+        if not torch.cuda.is_available():
+            raise RuntimeError("Lab04 requires CUDA.")
+        num_gpus = torch.cuda.device_count()
+        if num_gpus < data_parallel_size:
+            raise ValueError(
+                f"Requested data_parallel_size={data_parallel_size}, "
+                f"but only {num_gpus} CUDA devices are available."
+            )
+
         model = os.path.expanduser(model)
         self.block_size = block_size
+        self.data_parallel_size = data_parallel_size
+        self.tensor_parallel_size = 1
         self.tokenizer = AutoTokenizer.from_pretrained(model, use_fast=True, trust_remote_code=True)
         if self.tokenizer.pad_token_id is None:
             self.tokenizer.pad_token_id = self.tokenizer.eos_token_id
         self.eos_token_id = self.tokenizer.eos_token_id
 
-        num_gpus = torch.cuda.device_count()
-        if tensor_parallel_size < 1:
-            raise ValueError("tensor_parallel_size must be >= 1")
-        if num_gpus < tensor_parallel_size:
-            raise ValueError(
-                f"Requested {tensor_parallel_size} workers, but only {num_gpus} CUDA devices are available."
-            )
-        self.num_workers = tensor_parallel_size
-        self._processes: list[mp.Process] = []
-
-        ctx = mp.get_context("spawn")
         runner_kwargs = dict(
             model=model,
             max_num_seqs=max_num_seqs,
@@ -181,101 +282,170 @@ class LLMEngine:
             enforce_eager=enforce_eager,
             dtype=dtype,
         )
-        self.workers: list[_DeviceWorker] = []
+        scheduler_kwargs = dict(
+            max_num_seqs=max_num_seqs,
+            max_num_batched_tokens=max_num_batched_tokens,
+            eos_token_id=self.eos_token_id,
+        )
+
+        ctx = mp.get_context("spawn")
+        self.ranks: list[_RankClient] = []
+        self._result_queue: queue.Queue[_StepResult | None] = queue.Queue()
+        self._rank_threads: list[threading.Thread] = []
+        self._rank_loops_started = False
+        self._active_rank_loops = 0
+        self._current_result: _StepResult | None = None
+        self._stop_rank_loops = threading.Event()
+        self._rank_token_loads = [0] * data_parallel_size
+        self._rank_request_counts = [0] * data_parallel_size
+        self._seq_costs: dict[int, int] = {}
+        self._pending_requests: list[tuple[Sequence, int]] = []
 
         local_runner = ModelRunner(**runner_kwargs, device_id=0)
-        local_block_manager = BlockManager(local_runner.num_kvcache_blocks, block_size)
-        self.workers.append(
-            _DeviceWorker(
-                device_id=0,
-                runner=_LocalRunnerClient(local_runner),
+        self.ranks.append(
+            _LocalRankClient(
+                rank=0,
+                runner=local_runner,
                 scheduler=Scheduler(
-                    max_num_seqs=max_num_seqs,
-                    max_num_batched_tokens=max_num_batched_tokens,
-                    eos_token_id=self.eos_token_id,
-                    block_manager=local_block_manager,
+                    **scheduler_kwargs,
+                    block_manager=BlockManager(local_runner.num_kvcache_blocks, block_size),
                 ),
             )
         )
 
-        for device_id in range(1, self.num_workers):
+        for rank in range(1, data_parallel_size):
             parent_conn, child_conn = ctx.Pipe()
             process = ctx.Process(
                 target=_worker_loop,
-                args=(child_conn, {**runner_kwargs, "device_id": device_id}),
+                args=(child_conn, rank, runner_kwargs, scheduler_kwargs),
             )
             process.start()
-            self._processes.append(process)
-            self.workers.append(
-                _DeviceWorker(
-                    device_id=device_id,
-                    runner=_RemoteRunnerClient(process, parent_conn),
-                    scheduler=Scheduler(
-                        max_num_seqs=max_num_seqs,
-                        max_num_batched_tokens=max_num_batched_tokens,
-                        eos_token_id=self.eos_token_id,
-                        block_manager=BlockManager(local_runner.num_kvcache_blocks, block_size),
-                    ),
+            method, _num_kvcache_blocks = parent_conn.recv()
+            if method != "ready":
+                raise RuntimeError(f"DP rank {rank} failed to initialize.")
+            self.ranks.append(
+                _RemoteRankClient(
+                    rank=rank,
+                    process=process,
+                    conn=parent_conn,
+                    seqs={},
                 )
             )
         atexit.register(self.exit)
 
+    def _rank_loop(self, rank: _RankClient) -> None:
+        try:
+            while not self._stop_rank_loops.is_set():
+                result = rank.step()
+                if result is None:
+                    return
+                self._result_queue.put(result)
+        finally:
+            self._result_queue.put(None)
+
+    def _ensure_rank_loops_started(self) -> None:
+        if self._rank_loops_started:
+            return
+        self._flush_pending_requests()
+        self._stop_rank_loops.clear()
+        self._rank_loops_started = True
+        self._active_rank_loops = len(self.ranks)
+        for rank in self.ranks:
+            thread = threading.Thread(target=self._rank_loop, args=(rank,), daemon=True)
+            thread.start()
+            self._rank_threads.append(thread)
+
+    def _reset_finished_rank_loops(self) -> None:
+        if not self._rank_loops_started or self._active_rank_loops != 0:
+            return
+        if self._current_result is not None or not self._result_queue.empty():
+            return
+        for thread in self._rank_threads:
+            thread.join(timeout=1)
+        self._rank_threads = []
+        self._rank_loops_started = False
+
+    def _choose_rank_for_cost(self, cost: int) -> _RankClient:
+        rank_id = min(
+            range(len(self.ranks)),
+            key=lambda idx: (self._rank_token_loads[idx], self._rank_request_counts[idx]),
+        )
+        self._rank_token_loads[rank_id] += cost
+        self._rank_request_counts[rank_id] += 1
+        return self.ranks[rank_id]
+
+    def _flush_pending_requests(self) -> None:
+        if not self._pending_requests:
+            return
+        pending = sorted(
+            self._pending_requests,
+            key=lambda item: item[1],
+            reverse=True,
+        )
+        self._pending_requests = []
+        for seq, cost in pending:
+            rank = self._choose_rank_for_cost(cost)
+            rank.add_sequence(seq)
+
     def add_request(self, prompt: str | list[int], sampling_params: SamplingParams) -> Sequence:
+        self._reset_finished_rank_loops()
         if isinstance(prompt, str):
             prompt_token_ids = self.tokenizer.encode(prompt)
         else:
             prompt_token_ids = list(prompt)
         seq = Sequence(prompt_token_ids, self.block_size, sampling_params)
-        worker = min(self.workers, key=lambda item: item.pending_load())
-        worker.add(seq)
+        cost = seq.max_tokens + max(1, seq.num_prompt_tokens // 3)
+        self._seq_costs[seq.seq_id] = cost
+        if self._rank_loops_started:
+            rank = self._choose_rank_for_cost(cost)
+            rank.add_sequence(seq)
+        else:
+            self._pending_requests.append((seq, cost))
         return seq
 
     def is_finished(self) -> bool:
-        return all(worker.is_finished() for worker in self.workers)
+        if self._pending_requests:
+            return False
+        if self._rank_loops_started:
+            return (
+                self._active_rank_loops == 0
+                and self._current_result is None
+                and self._result_queue.empty()
+            )
+        return True
 
     def schedule(self) -> tuple[list[Sequence], bool]:
-        scheduled: list[Sequence] = []
-        for worker in self.workers:
-            scheduled.extend(worker.schedule_prefill())
-        if scheduled:
-            return scheduled, True
-
-        for worker in self.workers:
-            scheduled.extend(worker.schedule_decode())
-        return scheduled, False
+        self._ensure_rank_loops_started()
+        while self._active_rank_loops > 0:
+            result = self._result_queue.get()
+            if result is None:
+                self._active_rank_loops -= 1
+                continue
+            self._current_result = result
+            for seq in result.seqs:
+                seq._step_start_ts = result.start_ts
+                seq._step_end_ts = result.end_ts
+                seq._step_prefill_tokens = result.prefill_tokens
+                seq._step_decode_tokens = result.decode_tokens
+            return result.seqs, result.is_prefill
+        return [], False
 
     def run_step(self, seqs: list[Sequence], is_prefill: bool) -> list[int]:
-        seqs_by_worker: dict[int, list[Sequence]] = {}
-        for seq in seqs:
-            seqs_by_worker.setdefault(seq.dp_worker_id, []).append(seq)
-
-        for worker_id, worker_seqs in seqs_by_worker.items():
-            runner = self.workers[worker_id].runner
-            if isinstance(runner, _RemoteRunnerClient):
-                runner.send_run(worker_seqs, is_prefill)
-
-        token_ids_by_seq: dict[int, int] = {}
-        for worker_id, worker_seqs in seqs_by_worker.items():
-            runner = self.workers[worker_id].runner
-            if isinstance(runner, _RemoteRunnerClient):
-                worker_token_ids = runner.recv_run()
-            else:
-                worker_token_ids = runner.run_step(worker_seqs, is_prefill)
-            for seq, token_id in zip(worker_seqs, worker_token_ids):
-                token_ids_by_seq[seq.seq_id] = token_id
-        return [token_ids_by_seq[seq.seq_id] for seq in seqs]
+        del seqs, is_prefill
+        assert self._current_result is not None
+        return self._current_result.token_ids
 
     def postprocess(self, seqs: list[Sequence], token_ids: list[int]) -> list[tuple[int, list[int]]]:
-        seqs_by_worker: dict[int, list[Sequence]] = {}
-        token_ids_by_worker: dict[int, list[int]] = {}
-        for seq, token_id in zip(seqs, token_ids):
-            seqs_by_worker.setdefault(seq.dp_worker_id, []).append(seq)
-            token_ids_by_worker.setdefault(seq.dp_worker_id, []).append(token_id)
-
-        finished_outputs: list[tuple[int, list[int]]] = []
-        for worker_id, worker_seqs in seqs_by_worker.items():
-            finished_outputs.extend(self.workers[worker_id].postprocess(worker_seqs, token_ids_by_worker[worker_id]))
-        return finished_outputs
+        del seqs, token_ids
+        assert self._current_result is not None
+        finished = self._current_result.finished
+        for seq_id, _ in finished:
+            cost = self._seq_costs.pop(seq_id, 0)
+            rank_id = self._current_result.seqs[0].dp_rank
+            self._rank_token_loads[rank_id] = max(0, self._rank_token_loads[rank_id] - cost)
+            self._rank_request_counts[rank_id] = max(0, self._rank_request_counts[rank_id] - 1)
+        self._current_result = None
+        return finished
 
     def generate(
         self,
@@ -303,9 +473,13 @@ class LLMEngine:
         return [{"text": self.tokenizer.decode(token_ids), "token_ids": token_ids} for token_ids in ordered]
 
     def exit(self) -> None:
-        workers = getattr(self, "workers", None)
-        if workers is None:
+        ranks = getattr(self, "ranks", None)
+        if ranks is None:
             return
-        for worker in workers:
-            worker.exit()
-        self.workers = []
+        self._stop_rank_loops.set()
+        for thread in getattr(self, "_rank_threads", []):
+            thread.join()
+        self._rank_threads = []
+        for rank in ranks:
+            rank.exit()
+        self.ranks = []

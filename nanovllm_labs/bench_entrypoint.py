@@ -27,11 +27,14 @@ def build_bench_parser(
     include_max_model_len: bool = False,
     include_enforce_eager: bool = False,
     include_tensor_parallel_size: bool = False,
+    include_data_parallel_size: bool = False,
 ) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", default="~/huggingface/Qwen3-0.6B")
     if include_tensor_parallel_size:
         parser.add_argument("--tensor-parallel-size", type=int, default=1)
+    if include_data_parallel_size:
+        parser.add_argument("--data-parallel-size", type=int, default=1)
     if include_device:
         parser.add_argument("--device", default="auto")
     parser.add_argument("--dtype", default="auto", choices=dtype_choices)
@@ -180,6 +183,7 @@ def run_scheduler_entrypoint(
         include_max_model_len=include_max_model_len,
         include_enforce_eager=include_enforce_eager,
         include_tensor_parallel_size=True,
+        include_data_parallel_size=True,
     )
     args = parser.parse_args(argv)
     workload = build_bench_workload(seed=args.bench_seed, num_seqs=bench_num_seqs)
