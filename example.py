@@ -12,6 +12,7 @@ def parse_args():
     parser.add_argument("--lab", type=int, default=1)
     parser.add_argument("--solution", action="store_true")
     parser.add_argument("--tensor-parallel-size", type=int, default=None)
+    parser.add_argument("--data-parallel-size", type=int, default=None)
     parser.add_argument(
         "--model",
         type=str,
@@ -31,6 +32,11 @@ def default_model_for_lab(lab: int) -> str:
 def default_tp_for_lab(lab: int) -> int:
     if lab == 5:
         return 2
+    return 1
+
+
+def default_dp_for_lab(lab: int) -> int:
+    del lab
     return 1
 
 
@@ -69,14 +75,34 @@ def resolve_model_path(model_arg: str | None) -> str:
 
 def main():
     args = parse_args()
+    if args.lab == 6 and args.tensor_parallel_size is not None:
+        raise ValueError("Lab 6 does not support tensor_parallel_size; use --data-parallel-size.")
     model_arg = args.model
     if model_arg == "~/huggingface/Qwen3-0.6B/" and args.lab == 5:
         model_arg = default_model_for_lab(args.lab)
     path = resolve_model_path(model_arg)
     tokenizer = AutoTokenizer.from_pretrained(path, use_fast=True, trust_remote_code=True)
     llm_cls = load_llm_engine(args.lab, args.solution)
-    tp_size = args.tensor_parallel_size if args.tensor_parallel_size is not None else default_tp_for_lab(args.lab)
-    llm = llm_cls(path, device="auto", dtype="auto", tensor_parallel_size=tp_size)
+    llm_kwargs = {
+        "device": "auto",
+        "dtype": "auto",
+    }
+    if args.lab == 5:
+        llm_kwargs["tensor_parallel_size"] = (
+            args.tensor_parallel_size
+            if args.tensor_parallel_size is not None
+            else default_tp_for_lab(args.lab)
+        )
+    if args.lab == 6:
+        llm_kwargs["data_parallel_size"] = (
+            args.data_parallel_size
+            if args.data_parallel_size is not None
+            else default_dp_for_lab(args.lab)
+        )
+    llm = llm_cls(
+        path,
+        **llm_kwargs,
+    )
 
     sampling_params = SamplingParams(temperature=0.6, max_tokens=256)
     prompts = [
