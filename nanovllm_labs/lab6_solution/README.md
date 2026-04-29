@@ -17,6 +17,8 @@ This is data parallelism, not tensor parallelism:
 
 ## Run
 
+By default, `lab6_solution` follows the Lab 4 model choice and uses `Qwen3-0.6B` unless you pass `--model` explicitly.
+
 Single GPU:
 
 ```bash
@@ -40,3 +42,17 @@ If you want to benchmark a larger dense model, pass it explicitly:
 ```
 
 `--tensor-parallel-size 2` is accepted as a compatibility alias, but `lab6_solution` does not implement tensor parallelism.
+
+## When To Use DP vs TP
+
+Replicated data parallelism and tensor parallelism solve different problems:
+
+- Use Lab 6 DP when the model already fits on each GPU and you want higher throughput by serving independent requests on multiple replicas.
+- Use Lab 5 TP when the model is too large for one GPU or when you need to shard model weights across devices to make the run feasible.
+
+The practical tradeoff is:
+
+- DP keeps the forward path local to each rank, so it avoids TP collectives on every token step.
+- TP pays communication cost during the forward pass, but it lets you run larger dense models that would not fit as full replicas.
+
+That is why Lab 6 is usually the better comparison against Lab 4 on `Qwen3-0.6B`, while Lab 5 is the right tool for `Qwen3-4B` when single-GPU memory pressure becomes the dominant constraint.
