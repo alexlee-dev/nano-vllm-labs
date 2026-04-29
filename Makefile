@@ -1,4 +1,4 @@
-.PHONY: run-lab1 run-lab1-s run-lab2 run-lab2-s run-lab3 run-lab3-s run-lab4 run-lab4-s run-lab5-s run-lab6-s bench-lab1 bench-lab1-s bench-lab2 bench-lab2-s bench-lab3 bench-lab3-s bench-lab4 bench-lab4-s bench-lab5-s bench-lab6-s bench-prefix-lab3-s bench-prefix-lab4-s
+.PHONY: run-lab1 run-lab1-s run-lab2 run-lab2-s run-lab3 run-lab3-s run-lab4 run-lab4-s run-lab5-s run-lab6-s run-lab7-s bench-lab1 bench-lab1-s bench-lab2 bench-lab2-s bench-lab3 bench-lab3-s bench-lab4 bench-lab4-s bench-lab5-s bench-lab6-s bench-lab7-s bench-prefix-lab3-s bench-prefix-lab4-s
 
 PYTHON := .venv/bin/python
 
@@ -32,6 +32,9 @@ run-lab5-s:
 run-lab6-s:
 	$(PYTHON) example.py --lab 6 --solution --data-parallel-size 2
 
+run-lab7-s:
+	$(PYTHON) example.py --lab 7 --solution --pipeline-parallel-size 2
+
 bench-lab1:
 	$(PYTHON) bench.py --lab 1
 
@@ -61,6 +64,9 @@ bench-lab5-s:
 
 bench-lab6-s:
 	$(PYTHON) bench.py --lab 6 --solution --data-parallel-size 2
+
+bench-lab7-s:
+	$(PYTHON) bench.py --lab 7 --solution --pipeline-parallel-size 2
 
 bench-prefix-lab3-s:
 	$(PYTHON) bench_prefix.py --lab 3 --solution

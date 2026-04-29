@@ -16,13 +16,15 @@ The labs are cumulative:
 - Lab 4: warmup-based KV sizing, prefix reuse, and CUDA Graph decode on one GPU
 - Lab 5: single-node multi-GPU tensor parallel serving for `Qwen3-4B`
 - Lab 6: single-node replicated data parallel serving across full dense model replicas
+- Lab 7: single-node pipeline parallel serving for `Qwen3-4B`
 
 Current scope:
 
 - Labs 1-4 are single-GPU
 - Lab 5 is single-node tensor parallel
 - Lab 6 is single-node replicated data parallel
-- Multi-node execution and pipeline parallelism are still out of scope
+- Lab 7 is single-node pipeline parallel
+- Multi-node execution is still out of scope
 
 The project is intentionally educational rather than production-complete. If you want the fuller production-oriented runtime, refer directly to the original `nano-vllm` project.
 
@@ -34,6 +36,7 @@ The project is intentionally educational rather than production-complete. If you
 - Lab 4 keeps the Lab 3 paged-KV runtime, then pushes the single-GPU execution path further with cleaner runtime state tracking, warmup-based memory sizing, and CUDA Graph capture for decode batches.
 - Lab 5 adds tensor parallelism for sharding a larger dense model across GPUs.
 - Lab 6 adds replicated data parallelism so multiple GPUs can serve independent requests concurrently.
+- Lab 7 adds a minimal pipeline-parallel path that shards contiguous decoder-layer ranges across GPUs.
 
 ## Quickstart
 
@@ -76,6 +79,14 @@ If you want to benchmark the larger dense-model case explicitly:
 ```bash
 python example.py --lab 6 --solution --model ~/huggingface/Qwen3-4B/ --data-parallel-size 2
 python bench.py --lab 6 --solution --model ~/huggingface/Qwen3-4B/ --data-parallel-size 2
+```
+
+For Lab 7, the default benchmark target uses `Qwen3-4B` with `pipeline_parallel_size=2`:
+
+```bash
+python example.py --lab 7 --solution --pipeline-parallel-size 2
+make run-lab7-s
+make bench-lab7-s
 ```
 
 ## Environment Setup
@@ -132,6 +143,7 @@ make run-lab3-s
 make run-lab4-s
 make run-lab5-s
 make run-lab6-s
+make run-lab7-s
 ```
 
 If you want to work through the exercises, use the matching student targets:
@@ -149,6 +161,7 @@ Direct entrypoints:
 .venv/bin/python example.py --lab 4 --solution --model ~/huggingface/Qwen3-0.6B/
 .venv/bin/python example.py --lab 5 --solution --model ~/huggingface/Qwen3-4B/ --tensor-parallel-size 2
 .venv/bin/python example.py --lab 6 --solution --data-parallel-size 2
+.venv/bin/python example.py --lab 7 --solution --pipeline-parallel-size 2
 ```
 
 ## Benchmark
@@ -162,6 +175,7 @@ make bench-lab3-s
 make bench-lab4-s
 make bench-lab5-s
 make bench-lab6-s
+make bench-lab7-s
 ```
 
 Prefix benchmarks:
@@ -314,6 +328,20 @@ Request-level summary for `Qwen3-4B` on `Lab6-solution (DP=2)`:
 | `request_tpot_ms`         | 24.73     | 20.26       | 44.80    | 65.27 |
 | `request_e2e_ms`          | 324827.56 | 335803.30   | 607565.55 | 629283.97 |
 
+### RTX 5070 x2, Single-Node PP, Qwen3-4B
+
+Hardware: NVIDIA GeForce RTX 5070 x2, 12GB each
+
+This is a minimal single-node pipeline-parallel run: rank 0 owns the early decoder layers and embeddings, rank 1 owns the later decoder layers and LM head, and hidden states are passed stage to stage with point-to-point sends.
+
+Benchmarked command:
+
+```bash
+python bench.py --lab 7 --solution --pipeline-parallel-size 2
+```
+
+This path is intentionally educational and currently does not implement overlap or microbatch pipeline scheduling, so expect it to trade simplicity for throughput. It is best compared against the other `Qwen3-4B` tables above after running the benchmark locally on the same machine.
+
 ## Prefix Benchmark
 
 The prefix benchmark isolates prompt-prefix reuse:
@@ -334,6 +362,7 @@ The most important outputs are:
 - [Lab 4](nanovllm_labs/lab4/engine/README.md)
 - [Lab 5](nanovllm_labs/lab5/README.md)
 - [Lab 6](nanovllm_labs/lab6_solution/README.md)
+- [Lab 7](nanovllm_labs/lab7_solution/README.md)
 
 ## Star History
 
