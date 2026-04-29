@@ -26,6 +26,8 @@ class BenchSpec:
     include_device: bool = False
     include_max_model_len: bool = False
     include_enforce_eager: bool = False
+    include_tensor_parallel_size: bool = False
+    include_data_parallel_size: bool = False
     prefill_tokens_for_step: PrefillTokensBuilder | None = None
 
 def load_llm_engine(module_name: str):
@@ -78,7 +80,19 @@ def _lab4_kwargs(args: argparse.Namespace) -> dict[str, Any]:
         "gpu_memory_utilization": args.gpu_memory_utilization,
         "enforce_eager": args.enforce_eager,
         "dtype": args.dtype,
+    }
+
+
+def _lab5_kwargs(args: argparse.Namespace) -> dict[str, Any]:
+    return {
+        **_lab4_kwargs(args),
         "tensor_parallel_size": args.tensor_parallel_size,
+    }
+
+
+def _lab6_kwargs(args: argparse.Namespace) -> dict[str, Any]:
+    return {
+        **_lab4_kwargs(args),
         "data_parallel_size": args.data_parallel_size,
     }
 
@@ -116,6 +130,8 @@ def make_scheduler_spec(
     prefill_tokens_for_step: PrefillTokensBuilder,
     include_max_model_len: bool = False,
     include_enforce_eager: bool = False,
+    include_tensor_parallel_size: bool = False,
+    include_data_parallel_size: bool = False,
 ) -> BenchSpec:
     return BenchSpec(
         lab=lab,
@@ -128,6 +144,8 @@ def make_scheduler_spec(
         extra_fields=extra_fields,
         include_max_model_len=include_max_model_len,
         include_enforce_eager=include_enforce_eager,
+        include_tensor_parallel_size=include_tensor_parallel_size,
+        include_data_parallel_size=include_data_parallel_size,
         prefill_tokens_for_step=prefill_tokens_for_step,
     )
 
@@ -210,8 +228,9 @@ BENCH_SPECS: dict[tuple[int, bool], BenchSpec] = {
         dtype_choices=("auto", "float16", "bfloat16", "float32"),
         include_max_model_len=True,
         include_enforce_eager=True,
-        kwargs_builder=_lab4_kwargs,
+        kwargs_builder=_lab5_kwargs,
         extra_fields=lambda args, model, workload: [],
+        include_tensor_parallel_size=True,
         prefill_tokens_for_step=lambda seqs: sum(seq.num_prompt_tokens - seq.num_cached_tokens for seq in seqs),
     ),
     (6, True): make_scheduler_spec(
@@ -221,8 +240,9 @@ BENCH_SPECS: dict[tuple[int, bool], BenchSpec] = {
         dtype_choices=("auto", "float16", "bfloat16", "float32"),
         include_max_model_len=True,
         include_enforce_eager=True,
-        kwargs_builder=_lab4_kwargs,
+        kwargs_builder=_lab6_kwargs,
         extra_fields=lambda args, model, workload: [],
+        include_data_parallel_size=True,
         prefill_tokens_for_step=lambda seqs: sum(seq.num_prompt_tokens - seq.num_cached_tokens for seq in seqs),
     ),
 }
@@ -264,4 +284,6 @@ def run_bench_spec(argv: list[str] | None, *, lab: int, solution: bool) -> None:
         prefill_tokens_for_step=spec.prefill_tokens_for_step,
         include_max_model_len=spec.include_max_model_len,
         include_enforce_eager=spec.include_enforce_eager,
+        include_tensor_parallel_size=spec.include_tensor_parallel_size,
+        include_data_parallel_size=spec.include_data_parallel_size,
     )

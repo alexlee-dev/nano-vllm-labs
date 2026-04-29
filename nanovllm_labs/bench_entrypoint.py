@@ -176,14 +176,16 @@ def run_scheduler_entrypoint(
     prefill_tokens_for_step: PrefillTokensBuilder,
     include_max_model_len: bool = False,
     include_enforce_eager: bool = False,
+    include_tensor_parallel_size: bool = False,
+    include_data_parallel_size: bool = False,
 ) -> None:
     parser = build_bench_parser(
         dtype_choices=dtype_choices,
         include_scheduler_args=True,
         include_max_model_len=include_max_model_len,
         include_enforce_eager=include_enforce_eager,
-        include_tensor_parallel_size=True,
-        include_data_parallel_size=True,
+        include_tensor_parallel_size=include_tensor_parallel_size,
+        include_data_parallel_size=include_data_parallel_size,
     )
     args = parser.parse_args(argv)
     workload = build_bench_workload(seed=args.bench_seed, num_seqs=bench_num_seqs)

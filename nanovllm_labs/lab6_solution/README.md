@@ -41,8 +41,6 @@ If you want to benchmark a larger dense model, pass it explicitly:
 .venv/bin/python bench.py --lab 6 --solution --model ~/huggingface/Qwen3-4B --data-parallel-size 2
 ```
 
-`--tensor-parallel-size 2` is accepted as a compatibility alias, but `lab6_solution` does not implement tensor parallelism.
-
 ## When To Use DP vs TP
 
 Replicated data parallelism and tensor parallelism solve different problems:

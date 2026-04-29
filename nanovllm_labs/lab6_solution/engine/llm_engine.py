@@ -239,19 +239,11 @@ class LLMEngine:
         gpu_memory_utilization: float = 0.9,
         enforce_eager: bool = False,
         dtype: str = "auto",
-        tensor_parallel_size: int = 1,
         data_parallel_size: int = 1,
         **_: object,
     ) -> None:
         if device not in {"auto", "cuda"}:
             raise ValueError(f"Unsupported device={device!r}")
-        if data_parallel_size == 1 and tensor_parallel_size > 1:
-            data_parallel_size = tensor_parallel_size
-        elif tensor_parallel_size != 1:
-            raise ValueError(
-                "lab6_solution implements replicated data parallelism only; "
-                "use data_parallel_size for multiple GPUs."
-            )
         if data_parallel_size < 1:
             raise ValueError("data_parallel_size must be >= 1")
         if not torch.cuda.is_available():
@@ -266,7 +258,6 @@ class LLMEngine:
         model = os.path.expanduser(model)
         self.block_size = block_size
         self.data_parallel_size = data_parallel_size
-        self.tensor_parallel_size = 1
         self.tokenizer = AutoTokenizer.from_pretrained(model, use_fast=True, trust_remote_code=True)
         if self.tokenizer.pad_token_id is None:
             self.tokenizer.pad_token_id = self.tokenizer.eos_token_id

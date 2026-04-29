@@ -298,7 +298,7 @@ Use this table when you want a same-algorithm comparison against single-GPU Lab 
 | `Qwen3-0.6B` | Lab6-solution (DP=2) | `python bench.py --lab 6 --solution --data-parallel-size 2`                | 133,966                  | 356,816      | 25.64    | 5208.87                      | 13914.54                    |
 | `Qwen3-4B`   | Lab6-solution (DP=2) | `python bench.py --lab 6 --solution --model ~/huggingface/Qwen3-4B --data-parallel-size 2` | 133,966 | 299,549 | 645.61 | 206.82 | 463.98 |
 
-`lab6_solution` implements replicated data parallelism for dense models. For backwards compatibility, `--tensor-parallel-size 2` is accepted as DP=2, but new runs should use `--data-parallel-size 2`.
+`lab6_solution` implements replicated data parallelism for dense models, so Lab 6 runs should use `--data-parallel-size`.
 
 For small models that fit comfortably on one GPU, DP often wins on throughput because the forward path does not pay TP communication costs. For larger models that do not fit on one GPU, TP remains the way to make the model runnable at all.
 
