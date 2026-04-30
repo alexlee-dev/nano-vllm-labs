@@ -4,7 +4,7 @@ from transformers import AutoConfig
 from nanovllm_labs.lab2_solution.engine.sequence import Sequence
 from nanovllm_labs.lab2_solution.layers.sampler import Sampler
 from nanovllm_labs.lab2_solution.models.qwen3 import Qwen3ForCausalLM
-from nanovllm_labs.lab2_solution.utils.loader import load_model
+from nanovllm_labs.common.utils.loader import load_model
 
 import os
 

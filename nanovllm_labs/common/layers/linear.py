@@ -1,10 +1,9 @@
 import torch
-from torch import nn
 import torch.nn.functional as F
+from torch import nn
 
 
 class Linear(nn.Module):
-
     def __init__(
         self,
         input_size: int,
@@ -28,7 +27,6 @@ class Linear(nn.Module):
 
 
 class MergedLinear(Linear):
-
     def __init__(
         self,
         input_size: int,
@@ -45,7 +43,6 @@ class MergedLinear(Linear):
 
 
 class QKVLinear(Linear):
-
     def __init__(
         self,
         hidden_size: int,

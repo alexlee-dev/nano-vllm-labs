@@ -8,10 +8,11 @@ from transformers import AutoTokenizer
 import torch
 import torch.multiprocessing as mp
 
-from nanovllm_labs.lab5_solution.engine.block_manager import BlockManager
+from nanovllm_labs.common.engine.llm_engine import SchedulerLLMEngineBase
+from nanovllm_labs.common.runtime.block_manager import BlockManager
 from nanovllm_labs.lab5_solution.engine.model_runner import ModelRunner
-from nanovllm_labs.lab5_solution.engine.scheduler import Scheduler
-from nanovllm_labs.lab5_solution.engine.sequence import Sequence
+from nanovllm_labs.common.runtime.scheduler import Scheduler
+from nanovllm_labs.common.runtime.sequence import Sequence
 from nanovllm_labs.sampling_params import SamplingParams
 
 
@@ -22,7 +23,9 @@ def _pick_local_init_method() -> str:
     return f"tcp://127.0.0.1:{port}"
 
 
-class LLMEngine:
+class LLMEngine(SchedulerLLMEngineBase):
+    sequence_cls = Sequence
+
     def __init__(
         self,
         model: str,
@@ -82,10 +85,7 @@ class LLMEngine:
             self.events.append(event)
 
         self.model_runner = ModelRunner(**runner_kwargs, rank=0, event=self.events)
-        self.tokenizer = AutoTokenizer.from_pretrained(model, use_fast=True, trust_remote_code=True)
-        if self.tokenizer.pad_token_id is None:
-            self.tokenizer.pad_token_id = self.tokenizer.eos_token_id
-        self.eos_token_id = self.tokenizer.eos_token_id
+        self._init_tokenizer(model)
         self.block_manager = BlockManager(self.model_runner.num_kvcache_blocks, block_size)
         self.scheduler = Scheduler(
             max_num_seqs=max_num_seqs,
@@ -115,31 +115,6 @@ class LLMEngine:
 
     def postprocess(self, seqs: list[Sequence], token_ids: list[int]) -> list[tuple[int, list[int]]]:
         return self.scheduler.postprocess(seqs, token_ids)
-
-    def generate(
-        self,
-        prompts: list[str] | list[list[int]],
-        sampling_params: SamplingParams | list[SamplingParams],
-        use_tqdm: bool = False,
-    ) -> list[dict]:
-        del use_tqdm
-        if not isinstance(sampling_params, list):
-            sampling_params = [sampling_params] * len(prompts)
-
-        for prompt, sp in zip(prompts, sampling_params):
-            self.add_request(prompt, sp)
-
-        outputs: dict[int, list[int]] = {}
-        while not self.is_finished():
-            seqs, is_prefill = self.schedule()
-            if not seqs:
-                break
-            token_ids = self.run_step(seqs, is_prefill=is_prefill)
-            for seq_id, out_token_ids in self.postprocess(seqs, token_ids):
-                outputs[seq_id] = out_token_ids
-
-        ordered = [outputs[seq_id] for seq_id in sorted(outputs.keys())]
-        return [{"text": self.tokenizer.decode(token_ids), "token_ids": token_ids} for token_ids in ordered]
 
     def exit(self) -> None:
         model_runner = getattr(self, "model_runner", None)

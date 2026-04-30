@@ -3,7 +3,6 @@ from torch import nn
 
 
 class RMSNorm(nn.Module):
-
     def __init__(
         self,
         hidden_size: int,
@@ -46,5 +45,4 @@ class RMSNorm(nn.Module):
     ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
         if residual is None:
             return self.rms_forward(x)
-        else:
-            return self.add_rms_forward(x, residual)
+        return self.add_rms_forward(x, residual)
