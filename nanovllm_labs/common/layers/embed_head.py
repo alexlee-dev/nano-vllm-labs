@@ -1,17 +1,10 @@
 import torch
-from torch import nn
 import torch.nn.functional as F
-
-from ..utils.context import get_context
+from torch import nn
 
 
 class VocabEmbedding(nn.Module):
-
-    def __init__(
-        self,
-        num_embeddings: int,
-        embedding_dim: int,
-    ):
+    def __init__(self, num_embeddings: int, embedding_dim: int):
         super().__init__()
         self.weight = nn.Parameter(torch.empty(num_embeddings, embedding_dim))
         self.weight.weight_loader = self.weight_loader
@@ -24,18 +17,19 @@ class VocabEmbedding(nn.Module):
 
 
 class LMHead(VocabEmbedding):
-
     def __init__(
         self,
         num_embeddings: int,
         embedding_dim: int,
+        get_context,
         bias: bool = False,
     ):
         assert not bias
         super().__init__(num_embeddings, embedding_dim)
+        self._get_context = get_context
 
     def forward(self, x: torch.Tensor):
-        context = get_context()
+        context = self._get_context()
         if context.is_prefill:
             last_indices = context.cu_seqlens_q[1:] - 1
             x = x[last_indices].contiguous()

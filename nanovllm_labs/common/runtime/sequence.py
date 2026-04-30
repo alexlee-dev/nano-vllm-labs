@@ -1,8 +1,9 @@
 from __future__ import annotations
+
 from enum import Enum, auto
 
-from nanovllm_labs.sampling_params import SamplingParams
 from nanovllm_labs.base_sequence import BaseSequence
+from nanovllm_labs.sampling_params import SamplingParams
 
 
 class SequenceStatus(Enum):

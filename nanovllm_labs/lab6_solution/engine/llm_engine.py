@@ -9,12 +9,12 @@ from dataclasses import dataclass
 
 import torch
 import torch.multiprocessing as mp
-from transformers import AutoTokenizer
 
-from nanovllm_labs.lab6_solution.engine.block_manager import BlockManager
+from nanovllm_labs.common.engine.llm_engine import SchedulerLLMEngineBase
+from nanovllm_labs.common.runtime.block_manager import BlockManager
 from nanovllm_labs.lab6_solution.engine.model_runner import ModelRunner
-from nanovllm_labs.lab6_solution.engine.scheduler import Scheduler
-from nanovllm_labs.lab6_solution.engine.sequence import Sequence
+from nanovllm_labs.common.runtime.scheduler import Scheduler
+from nanovllm_labs.common.runtime.sequence import Sequence
 from nanovllm_labs.sampling_params import SamplingParams
 
 
@@ -227,7 +227,9 @@ class _LocalRankClient(_RankClient):
         self.runner.exit()
 
 
-class LLMEngine:
+class LLMEngine(SchedulerLLMEngineBase):
+    sequence_cls = Sequence
+
     def __init__(
         self,
         model: str,
@@ -258,10 +260,7 @@ class LLMEngine:
         model = os.path.expanduser(model)
         self.block_size = block_size
         self.data_parallel_size = data_parallel_size
-        self.tokenizer = AutoTokenizer.from_pretrained(model, use_fast=True, trust_remote_code=True)
-        if self.tokenizer.pad_token_id is None:
-            self.tokenizer.pad_token_id = self.tokenizer.eos_token_id
-        self.eos_token_id = self.tokenizer.eos_token_id
+        self._init_tokenizer(model)
 
         runner_kwargs = dict(
             model=model,
@@ -438,30 +437,6 @@ class LLMEngine:
         self._current_result = None
         return finished
 
-    def generate(
-        self,
-        prompts: list[str] | list[list[int]],
-        sampling_params: SamplingParams | list[SamplingParams],
-        use_tqdm: bool = False,
-    ) -> list[dict]:
-        del use_tqdm
-        if not isinstance(sampling_params, list):
-            sampling_params = [sampling_params] * len(prompts)
-
-        for prompt, sp in zip(prompts, sampling_params):
-            self.add_request(prompt, sp)
-
-        outputs: dict[int, list[int]] = {}
-        while not self.is_finished():
-            seqs, is_prefill = self.schedule()
-            if not seqs:
-                break
-            token_ids = self.run_step(seqs, is_prefill=is_prefill)
-            for seq_id, out_token_ids in self.postprocess(seqs, token_ids):
-                outputs[seq_id] = out_token_ids
-
-        ordered = [outputs[seq_id] for seq_id in sorted(outputs.keys())]
-        return [{"text": self.tokenizer.decode(token_ids), "token_ids": token_ids} for token_ids in ordered]
 
     def exit(self) -> None:
         ranks = getattr(self, "ranks", None)
