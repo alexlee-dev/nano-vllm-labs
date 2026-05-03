@@ -1,16 +1,17 @@
+from __future__ import annotations
+
 import torch
-from torch import nn
 import torch.nn.functional as F
+from torch import nn
 
 
 class Linear(nn.Module):
-
     def __init__(
         self,
         input_size: int,
         output_size: int,
         bias: bool = False,
-    ):
+    ) -> None:
         super().__init__()
         self.weight = nn.Parameter(torch.empty(output_size, input_size))
         self.weight.weight_loader = self.weight_loader
@@ -20,7 +21,7 @@ class Linear(nn.Module):
         else:
             self.register_parameter("bias", None)
 
-    def weight_loader(self, param: nn.Parameter, loaded_weight: torch.Tensor):
+    def weight_loader(self, param: nn.Parameter, loaded_weight: torch.Tensor) -> None:
         param.data.copy_(loaded_weight)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -28,24 +29,27 @@ class Linear(nn.Module):
 
 
 class MergedLinear(Linear):
-
     def __init__(
         self,
         input_size: int,
         output_sizes: list[int],
         bias: bool = False,
-    ):
+    ) -> None:
         self.output_sizes = output_sizes
         super().__init__(input_size, sum(output_sizes), bias)
 
-    def weight_loader(self, param: nn.Parameter, loaded_weight: torch.Tensor, loaded_shard_id: int):
+    def weight_loader(
+        self,
+        param: nn.Parameter,
+        loaded_weight: torch.Tensor,
+        loaded_shard_id: int,
+    ) -> None:
         shard_offset = sum(self.output_sizes[:loaded_shard_id])
         shard_size = self.output_sizes[loaded_shard_id]
         param.data[shard_offset : shard_offset + shard_size].copy_(loaded_weight)
 
 
 class QKVLinear(Linear):
-
     def __init__(
         self,
         hidden_size: int,
@@ -53,7 +57,7 @@ class QKVLinear(Linear):
         total_num_heads: int,
         total_num_kv_heads: int | None = None,
         bias: bool = False,
-    ):
+    ) -> None:
         total_num_kv_heads = total_num_kv_heads or total_num_heads
         self.head_size = head_size
         self.total_num_heads = total_num_heads
@@ -61,7 +65,12 @@ class QKVLinear(Linear):
         output_size = (total_num_heads + 2 * total_num_kv_heads) * self.head_size
         super().__init__(hidden_size, output_size, bias)
 
-    def weight_loader(self, param: nn.Parameter, loaded_weight: torch.Tensor, loaded_shard_id: str):
+    def weight_loader(
+        self,
+        param: nn.Parameter,
+        loaded_weight: torch.Tensor,
+        loaded_shard_id: str,
+    ) -> None:
         q_size = self.total_num_heads * self.head_size
         kv_size = self.total_num_kv_heads * self.head_size
         if loaded_shard_id == "q":

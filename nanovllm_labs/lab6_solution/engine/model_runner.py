@@ -6,9 +6,9 @@ import torch
 from transformers import AutoConfig
 
 from nanovllm_labs.common.loader import load_model
+from nanovllm_labs.common.sampler import Sampler
 from nanovllm_labs.common.sequence import Sequence
 from nanovllm_labs.lab6_solution.utils.context import get_context
-from nanovllm_labs.lab6_solution.layers.sampler import Sampler
 from nanovllm_labs.lab6_solution.models.qwen3 import Qwen3ForCausalLM
 from nanovllm_labs.lab6_solution.utils.context import reset_context, set_context
 from nanovllm_labs.sampling_params import SamplingParams

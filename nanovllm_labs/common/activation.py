@@ -1,14 +1,14 @@
+from __future__ import annotations
+
 import torch
-from torch import nn
 import torch.nn.functional as F
+from torch import nn
 
 
 class SiluAndMul(nn.Module):
-
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
 
-    @torch.compile
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x, y = x.chunk(2, -1)
         return F.silu(x) * y
