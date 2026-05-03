@@ -2,14 +2,9 @@ from __future__ import annotations
 
 import os
 
-from transformers import AutoTokenizer
-
 from nanovllm_labs.common.engine.llm_engine import SchedulerLLMEngineBase
-from nanovllm_labs.common.runtime.block_manager import BlockManager
+from nanovllm_labs.common.sequence import Sequence
 from nanovllm_labs.lab4_solution.engine.model_runner import ModelRunner
-from nanovllm_labs.common.runtime.scheduler import Scheduler
-from nanovllm_labs.common.runtime.sequence import Sequence
-from nanovllm_labs.sampling_params import SamplingParams
 
 
 class LLMEngine(SchedulerLLMEngineBase):
@@ -43,22 +38,11 @@ class LLMEngine(SchedulerLLMEngineBase):
             dtype=dtype,
         )
         self._init_tokenizer(model)
-        self.block_manager = BlockManager(self.model_runner.num_kvcache_blocks, block_size)
-        self.scheduler = Scheduler(
+        self._init_scheduler(
+            num_kvcache_blocks=self.model_runner.num_kvcache_blocks,
             max_num_seqs=max_num_seqs,
             max_num_batched_tokens=max_num_batched_tokens,
-            eos_token_id=self.eos_token_id,
-            block_manager=self.block_manager,
         )
-
-    def add_request(self, prompt: str | list[int], sampling_params: SamplingParams) -> Sequence:
-        if isinstance(prompt, str):
-            prompt_token_ids = self.tokenizer.encode(prompt)
-        else:
-            prompt_token_ids = list(prompt)
-        seq = Sequence(prompt_token_ids, self.block_size, sampling_params)
-        self.scheduler.add(seq)
-        return seq
 
     def is_finished(self) -> bool:
         return self.scheduler.is_finished()

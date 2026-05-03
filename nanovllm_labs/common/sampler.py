@@ -5,7 +5,7 @@ from torch import nn
 
 
 class Sampler(nn.Module):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
 
     def forward(self, logits: torch.Tensor, temperatures: torch.Tensor) -> torch.Tensor:

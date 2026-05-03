@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from nanovllm_labs.common.engine.llm_engine import SingleControllerDistributedLLMEngineBase
-from nanovllm_labs.lab5_solution.engine.model_runner import ModelRunner
+from nanovllm_labs.lab7_solution.engine.model_runner import ModelRunner
 
 
 class LLMEngine(SingleControllerDistributedLLMEngineBase):
@@ -16,11 +16,11 @@ class LLMEngine(SingleControllerDistributedLLMEngineBase):
         gpu_memory_utilization: float = 0.9,
         enforce_eager: bool = False,
         dtype: str = "auto",
-        tensor_parallel_size: int = 1,
+        pipeline_parallel_size: int = 1,
         distributed_init_method: str | None = None,
         **_: object,
     ) -> None:
-        self.tensor_parallel_size = tensor_parallel_size
+        self.pipeline_parallel_size = pipeline_parallel_size
         self._init_distributed_engine(
             model=model,
             device=device,
@@ -31,10 +31,10 @@ class LLMEngine(SingleControllerDistributedLLMEngineBase):
             gpu_memory_utilization=gpu_memory_utilization,
             enforce_eager=enforce_eager,
             dtype=dtype,
-            parallel_size=tensor_parallel_size,
-            parallel_size_arg="tensor_parallel_size",
-            runtime_label="Lab05",
-            shm_prefix="nanovllm_labs_lab5_tp",
+            parallel_size=pipeline_parallel_size,
+            parallel_size_arg="pipeline_parallel_size",
+            runtime_label="Lab07",
+            shm_prefix="nanovllm_labs_lab7_pp",
             runner_cls=ModelRunner,
             distributed_init_method=distributed_init_method,
         )

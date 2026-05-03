@@ -4,17 +4,18 @@ import atexit
 import os
 import queue
 import threading
-from time import perf_counter
 from dataclasses import dataclass
+from time import perf_counter
 
 import torch
 import torch.multiprocessing as mp
+from transformers import AutoTokenizer
 
+from nanovllm_labs.common.block_manager import BlockManager
 from nanovllm_labs.common.engine.llm_engine import SchedulerLLMEngineBase
-from nanovllm_labs.common.runtime.block_manager import BlockManager
+from nanovllm_labs.common.scheduler import Scheduler
+from nanovllm_labs.common.sequence import Sequence
 from nanovllm_labs.lab6_solution.engine.model_runner import ModelRunner
-from nanovllm_labs.common.runtime.scheduler import Scheduler
-from nanovllm_labs.common.runtime.sequence import Sequence
 from nanovllm_labs.sampling_params import SamplingParams
 
 
@@ -78,11 +79,7 @@ def _worker_loop(
                 )
                 decode_tokens = 0 if scheduled_is_prefill else len(scheduled)
                 start_ts = perf_counter()
-                token_ids = (
-                    model_runner.run(scheduled, is_prefill=scheduled_is_prefill)
-                    if scheduled
-                    else []
-                )
+                token_ids = model_runner.run(scheduled, is_prefill=scheduled_is_prefill) if scheduled else []
                 finished = scheduler.postprocess(scheduled, token_ids)
                 end_ts = perf_counter()
                 conn.send(
@@ -367,11 +364,7 @@ class LLMEngine(SchedulerLLMEngineBase):
     def _flush_pending_requests(self) -> None:
         if not self._pending_requests:
             return
-        pending = sorted(
-            self._pending_requests,
-            key=lambda item: item[1],
-            reverse=True,
-        )
+        pending = sorted(self._pending_requests, key=lambda item: item[1], reverse=True)
         self._pending_requests = []
         for seq, cost in pending:
             rank = self._choose_rank_for_cost(cost)
@@ -379,11 +372,7 @@ class LLMEngine(SchedulerLLMEngineBase):
 
     def add_request(self, prompt: str | list[int], sampling_params: SamplingParams) -> Sequence:
         self._reset_finished_rank_loops()
-        if isinstance(prompt, str):
-            prompt_token_ids = self.tokenizer.encode(prompt)
-        else:
-            prompt_token_ids = list(prompt)
-        seq = Sequence(prompt_token_ids, self.block_size, sampling_params)
+        seq = self.sequence_cls(self._prompt_token_ids(prompt), self.block_size, sampling_params)
         cost = seq.max_tokens + max(1, seq.num_prompt_tokens // 3)
         self._seq_costs[seq.seq_id] = cost
         if self._rank_loops_started:
@@ -436,7 +425,6 @@ class LLMEngine(SchedulerLLMEngineBase):
             self._rank_request_counts[rank_id] = max(0, self._rank_request_counts[rank_id] - 1)
         self._current_result = None
         return finished
-
 
     def exit(self) -> None:
         ranks = getattr(self, "ranks", None)

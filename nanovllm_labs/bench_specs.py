@@ -28,6 +28,7 @@ class BenchSpec:
     include_enforce_eager: bool = False
     include_tensor_parallel_size: bool = False
     include_data_parallel_size: bool = False
+    include_pipeline_parallel_size: bool = False
     prefill_tokens_for_step: PrefillTokensBuilder | None = None
 
 def load_llm_engine(module_name: str):
@@ -97,6 +98,13 @@ def _lab6_kwargs(args: argparse.Namespace) -> dict[str, Any]:
     }
 
 
+def _lab7_kwargs(args: argparse.Namespace) -> dict[str, Any]:
+    return {
+        **_lab4_kwargs(args),
+        "pipeline_parallel_size": args.pipeline_parallel_size,
+    }
+
+
 def make_autoregressive_spec(
     *,
     lab: int,
@@ -132,6 +140,7 @@ def make_scheduler_spec(
     include_enforce_eager: bool = False,
     include_tensor_parallel_size: bool = False,
     include_data_parallel_size: bool = False,
+    include_pipeline_parallel_size: bool = False,
 ) -> BenchSpec:
     return BenchSpec(
         lab=lab,
@@ -146,6 +155,7 @@ def make_scheduler_spec(
         include_enforce_eager=include_enforce_eager,
         include_tensor_parallel_size=include_tensor_parallel_size,
         include_data_parallel_size=include_data_parallel_size,
+        include_pipeline_parallel_size=include_pipeline_parallel_size,
         prefill_tokens_for_step=prefill_tokens_for_step,
     )
 
@@ -245,6 +255,18 @@ BENCH_SPECS: dict[tuple[int, bool], BenchSpec] = {
         include_data_parallel_size=True,
         prefill_tokens_for_step=lambda seqs: sum(seq.num_prompt_tokens - seq.num_cached_tokens for seq in seqs),
     ),
+    (7, True): make_scheduler_spec(
+        lab=7,
+        solution=True,
+        module_name="nanovllm_labs.lab7_solution.engine.llm_engine",
+        dtype_choices=("auto", "float16", "bfloat16", "float32"),
+        include_max_model_len=True,
+        include_enforce_eager=True,
+        kwargs_builder=_lab7_kwargs,
+        extra_fields=lambda args, model, workload: [],
+        include_pipeline_parallel_size=True,
+        prefill_tokens_for_step=lambda seqs: sum(seq.num_prompt_tokens - seq.num_cached_tokens for seq in seqs),
+    ),
 }
 
 
@@ -262,6 +284,10 @@ def run_bench_spec(argv: list[str] | None, *, lab: int, solution: bool) -> None:
         argv = ["--model", "~/huggingface/Qwen3-4B/"] + argv
     if lab == 5 and "--tensor-parallel-size" not in argv:
         argv = ["--tensor-parallel-size", "2"] + argv
+    if lab == 7 and "--model" not in argv:
+        argv = ["--model", "~/huggingface/Qwen3-4B/"] + argv
+    if lab == 7 and "--pipeline-parallel-size" not in argv:
+        argv = ["--pipeline-parallel-size", "2"] + argv
     if spec.kind == "autoregressive":
         run_autoregressive_entrypoint(
             argv,
@@ -286,4 +312,5 @@ def run_bench_spec(argv: list[str] | None, *, lab: int, solution: bool) -> None:
         include_enforce_eager=spec.include_enforce_eager,
         include_tensor_parallel_size=spec.include_tensor_parallel_size,
         include_data_parallel_size=spec.include_data_parallel_size,
+        include_pipeline_parallel_size=spec.include_pipeline_parallel_size,
     )

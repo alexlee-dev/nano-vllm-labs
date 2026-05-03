@@ -9,7 +9,7 @@ from .sequence import Sequence
 
 
 class Block:
-    def __init__(self, block_id):
+    def __init__(self, block_id: int) -> None:
         self.block_id = block_id
         self.ref_count = 0
         self.hash = -1

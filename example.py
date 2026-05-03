@@ -13,6 +13,7 @@ def parse_args():
     parser.add_argument("--solution", action="store_true")
     parser.add_argument("--tensor-parallel-size", type=int, default=None)
     parser.add_argument("--data-parallel-size", type=int, default=None)
+    parser.add_argument("--pipeline-parallel-size", type=int, default=None)
     parser.add_argument(
         "--model",
         type=str,
@@ -24,7 +25,7 @@ def parse_args():
 
 
 def default_model_for_lab(lab: int) -> str:
-    if lab == 5:
+    if lab in {5, 7}:
         return "~/huggingface/Qwen3-4B/"
     return "~/huggingface/Qwen3-0.6B/"
 
@@ -37,6 +38,12 @@ def default_tp_for_lab(lab: int) -> int:
 
 def default_dp_for_lab(lab: int) -> int:
     del lab
+    return 1
+
+
+def default_pp_for_lab(lab: int) -> int:
+    if lab == 7:
+        return 2
     return 1
 
 
@@ -77,8 +84,12 @@ def main():
     args = parse_args()
     if args.lab == 6 and args.tensor_parallel_size is not None:
         raise ValueError("Lab 6 does not support tensor_parallel_size; use --data-parallel-size.")
+    if args.lab == 7 and args.tensor_parallel_size is not None:
+        raise ValueError("Lab 7 does not support tensor_parallel_size; use --pipeline-parallel-size.")
+    if args.lab == 7 and args.data_parallel_size is not None:
+        raise ValueError("Lab 7 does not support data_parallel_size; use --pipeline-parallel-size.")
     model_arg = args.model
-    if model_arg == "~/huggingface/Qwen3-0.6B/" and args.lab == 5:
+    if model_arg == "~/huggingface/Qwen3-0.6B/" and args.lab in {5, 7}:
         model_arg = default_model_for_lab(args.lab)
     path = resolve_model_path(model_arg)
     tokenizer = AutoTokenizer.from_pretrained(path, use_fast=True, trust_remote_code=True)
@@ -98,6 +109,12 @@ def main():
             args.data_parallel_size
             if args.data_parallel_size is not None
             else default_dp_for_lab(args.lab)
+        )
+    if args.lab == 7:
+        llm_kwargs["pipeline_parallel_size"] = (
+            args.pipeline_parallel_size
+            if args.pipeline_parallel_size is not None
+            else default_pp_for_lab(args.lab)
         )
     llm = llm_cls(
         path,
