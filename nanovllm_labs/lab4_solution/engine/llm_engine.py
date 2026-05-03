@@ -4,10 +4,10 @@ import os
 
 from transformers import AutoTokenizer
 
-from nanovllm_labs.lab4_solution.engine.block_manager import BlockManager
+from nanovllm_labs.common.block_manager import BlockManager
+from nanovllm_labs.common.scheduler import Scheduler
+from nanovllm_labs.common.sequence import Sequence
 from nanovllm_labs.lab4_solution.engine.model_runner import ModelRunner
-from nanovllm_labs.lab4_solution.engine.scheduler import Scheduler
-from nanovllm_labs.lab4_solution.engine.sequence import Sequence
 from nanovllm_labs.sampling_params import SamplingParams
 
 

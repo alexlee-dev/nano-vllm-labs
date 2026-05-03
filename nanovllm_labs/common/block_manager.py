@@ -1,39 +1,40 @@
-from collections import deque
-import xxhash
-import numpy as np
+from __future__ import annotations
 
-from nanovllm_labs.lab7_solution.engine.sequence import Sequence
+from collections import deque
+
+import numpy as np
+import xxhash
+
+from .sequence import Sequence
 
 
 class Block:
-
-    def __init__(self, block_id):
+    def __init__(self, block_id: int):
         self.block_id = block_id
         self.ref_count = 0
         self.hash = -1
-        self.token_ids = []
+        self.token_ids: list[int] = []
 
-    def update(self, hash: int, token_ids: list[int]):
-        self.hash = hash
+    def update(self, hash_value: int, token_ids: list[int]) -> None:
+        self.hash = hash_value
         self.token_ids = token_ids
 
-    def reset(self):
+    def reset(self) -> None:
         self.ref_count = 1
         self.hash = -1
         self.token_ids = []
 
 
 class BlockManager:
-
     def __init__(self, num_blocks: int, block_size: int):
         self.block_size = block_size
         self.blocks: list[Block] = [Block(i) for i in range(num_blocks)]
-        self.hash_to_block_id: dict[int, int] = dict()
+        self.hash_to_block_id: dict[int, int] = {}
         self.free_block_ids: deque[int] = deque(range(num_blocks))
         self.used_block_ids: set[int] = set()
 
     @classmethod
-    def compute_hash(cls, token_ids: list[int], prefix: int = -1):
+    def compute_hash(cls, token_ids: list[int], prefix: int = -1) -> int:
         h = xxhash.xxh64()
         if prefix != -1:
             h.update(prefix.to_bytes(8, "little"))
@@ -46,9 +47,9 @@ class BlockManager:
         block.reset()
         self.free_block_ids.remove(block_id)
         self.used_block_ids.add(block_id)
-        return self.blocks[block_id]
+        return block
 
-    def _deallocate_block(self, block_id: int) -> Block:
+    def _deallocate_block(self, block_id: int) -> None:
         assert self.blocks[block_id].ref_count == 0
         self.used_block_ids.remove(block_id)
         self.free_block_ids.append(block_id)
@@ -56,14 +57,18 @@ class BlockManager:
     def can_allocate(self, seq: Sequence) -> bool:
         return len(self.free_block_ids) >= seq.num_blocks
 
-    def allocate(self, seq: Sequence):
+    def allocate(self, seq: Sequence) -> None:
         assert not seq.block_table
-        h = -1
+        hash_value = -1
         cache_miss = False
         for i in range(seq.num_blocks):
             token_ids = seq.block(i)
-            h = self.compute_hash(token_ids, h) if len(token_ids) == self.block_size else -1
-            block_id = self.hash_to_block_id.get(h, -1)
+            hash_value = (
+                self.compute_hash(token_ids, hash_value)
+                if len(token_ids) == self.block_size
+                else -1
+            )
+            block_id = self.hash_to_block_id.get(hash_value, -1)
             if block_id == -1 or self.blocks[block_id].token_ids != token_ids:
                 cache_miss = True
             if cache_miss:
@@ -76,12 +81,12 @@ class BlockManager:
                     block.ref_count += 1
                 else:
                     block = self._allocate_block(block_id)
-            if h != -1:
-                block.update(h, token_ids)
-                self.hash_to_block_id[h] = block_id
+            if hash_value != -1:
+                block.update(hash_value, token_ids)
+                self.hash_to_block_id[hash_value] = block_id
             seq.block_table.append(block_id)
 
-    def deallocate(self, seq: Sequence):
+    def deallocate(self, seq: Sequence) -> None:
         for block_id in reversed(seq.block_table):
             block = self.blocks[block_id]
             block.ref_count -= 1
@@ -93,7 +98,7 @@ class BlockManager:
     def can_append(self, seq: Sequence) -> bool:
         return len(self.free_block_ids) >= (len(seq) % self.block_size == 1)
 
-    def may_append(self, seq: Sequence):
+    def may_append(self, seq: Sequence) -> None:
         block_table = seq.block_table
         last_block = self.blocks[block_table[-1]]
         if len(seq) % self.block_size == 1:
@@ -103,10 +108,10 @@ class BlockManager:
             block_table.append(block_id)
         elif len(seq) % self.block_size == 0:
             assert last_block.hash == -1
-            token_ids = seq.block(seq.num_blocks-1)
+            token_ids = seq.block(seq.num_blocks - 1)
             prefix = self.blocks[block_table[-2]].hash if len(block_table) > 1 else -1
-            h = self.compute_hash(token_ids, prefix)
-            last_block.update(h, token_ids)
-            self.hash_to_block_id[h] = last_block.block_id
+            hash_value = self.compute_hash(token_ids, prefix)
+            last_block.update(hash_value, token_ids)
+            self.hash_to_block_id[hash_value] = last_block.block_id
         else:
             assert last_block.hash == -1

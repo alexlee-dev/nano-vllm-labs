@@ -27,7 +27,7 @@ class Scheduler:
     def add(self, seq: Sequence) -> None:
         self.waiting.append(seq)
 
-    def schedule(self) -> tuple[list[Sequence], bool]:
+    def schedule_prefill(self) -> list[Sequence]:
         scheduled: list[Sequence] = []
         num_seqs = 0
         num_batched_tokens = 0
@@ -47,8 +47,13 @@ class Scheduler:
             self.waiting.popleft()
             self.running.append(seq)
             scheduled.append(seq)
-        if scheduled:
-            return scheduled, True
+        return scheduled
+
+    def schedule_decode(self) -> list[Sequence]:
+        scheduled: list[Sequence] = []
+        num_seqs = 0
+        if not self.running:
+            return scheduled
 
         while self.running and num_seqs < self.max_num_seqs:
             seq = self.running.popleft()
@@ -62,17 +67,26 @@ class Scheduler:
                 num_seqs += 1
                 self.block_manager.may_append(seq)
                 scheduled.append(seq)
-        if not scheduled:
-            return [], False
-        self.running.extendleft(reversed(scheduled))
-        return scheduled, False
+        if scheduled:
+            self.running.extendleft(reversed(scheduled))
+        return scheduled
+
+    def schedule(self) -> tuple[list[Sequence], bool]:
+        scheduled = self.schedule_prefill()
+        if scheduled:
+            return scheduled, True
+        return self.schedule_decode(), False
 
     def preempt(self, seq: Sequence) -> None:
         seq.status = SequenceStatus.WAITING
         self.block_manager.deallocate(seq)
         self.waiting.appendleft(seq)
 
-    def postprocess(self, seqs: list[Sequence], token_ids: list[int]) -> list[tuple[int, list[int]]]:
+    def postprocess(
+        self,
+        seqs: list[Sequence],
+        token_ids: list[int],
+    ) -> list[tuple[int, list[int]]]:
         finished_outputs: list[tuple[int, list[int]]] = []
         for seq, token_id in zip(seqs, token_ids):
             seq.append_token(token_id)

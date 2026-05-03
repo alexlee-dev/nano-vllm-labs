@@ -1,8 +1,9 @@
 from __future__ import annotations
+
 from enum import Enum, auto
 
-from nanovllm_labs.sampling_params import SamplingParams
 from nanovllm_labs.base_sequence import BaseSequence
+from nanovllm_labs.sampling_params import SamplingParams
 
 
 class SequenceStatus(Enum):
@@ -12,7 +13,12 @@ class SequenceStatus(Enum):
 
 
 class Sequence(BaseSequence):
-    def __init__(self, token_ids: list[int], block_size: int, sampling_params: SamplingParams) -> None:
+    def __init__(
+        self,
+        token_ids: list[int],
+        block_size: int,
+        sampling_params: SamplingParams,
+    ) -> None:
         super().__init__(token_ids, sampling_params)
         self.status = SequenceStatus.WAITING
         self.num_cached_tokens = 0
