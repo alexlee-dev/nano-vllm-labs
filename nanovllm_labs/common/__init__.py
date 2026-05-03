@@ -6,6 +6,7 @@ from .embed_head import LMHead, VocabEmbedding
 from .layernorm import RMSNorm
 from .linear import Linear, MergedLinear, QKVLinear
 from .loader import default_weight_loader, load_model
+from .model_runner import ModelRunnerBase, SharedMemoryModelRunnerMixin, resolve_torch_dtype
 from .qwen3_blocks import Qwen3Attention, Qwen3DecoderLayer, Qwen3MLP
 from .rotary_embedding import RotaryEmbedding, apply_rotary_emb, get_rope
 from .sampler import Sampler
@@ -21,6 +22,7 @@ __all__ = [
     "Linear",
     "LMHead",
     "MergedLinear",
+    "ModelRunnerBase",
     "QKVLinear",
     "Qwen3Attention",
     "Qwen3DecoderLayer",
@@ -31,12 +33,14 @@ __all__ = [
     "Scheduler",
     "Sequence",
     "SequenceStatus",
+    "SharedMemoryModelRunnerMixin",
     "SiluAndMul",
     "VocabEmbedding",
     "apply_rotary_emb",
     "default_weight_loader",
     "get_rope",
     "load_model",
+    "resolve_torch_dtype",
     "store_kvcache",
     "store_kvcache_kernel",
 ]

@@ -7,7 +7,7 @@ from nanovllm_labs.lab3_solution.engine.sequence import Sequence
 from nanovllm_labs.lab3_solution.layers.sampler import Sampler
 from nanovllm_labs.lab3_solution.models.qwen3 import Qwen3ForCausalLM
 from nanovllm_labs.lab3_solution.utils.context import reset_context, set_context
-from nanovllm_labs.lab3_solution.utils.loader import load_model
+from nanovllm_labs.common.utils.loader import load_model
 
 
 class ModelRunner:

@@ -1,9 +1,10 @@
+from __future__ import annotations
+
 import torch
 from torch import nn
 
 
 class RMSNorm(nn.Module):
-
     def __init__(
         self,
         hidden_size: int,
@@ -13,7 +14,6 @@ class RMSNorm(nn.Module):
         self.eps = eps
         self.weight = nn.Parameter(torch.ones(hidden_size))
 
-    @torch.compile
     def rms_forward(
         self,
         x: torch.Tensor,
@@ -25,7 +25,6 @@ class RMSNorm(nn.Module):
         x = x.to(orig_dtype).mul_(self.weight)
         return x
 
-    @torch.compile
     def add_rms_forward(
         self,
         x: torch.Tensor,
@@ -46,5 +45,4 @@ class RMSNorm(nn.Module):
     ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
         if residual is None:
             return self.rms_forward(x)
-        else:
-            return self.add_rms_forward(x, residual)
+        return self.add_rms_forward(x, residual)

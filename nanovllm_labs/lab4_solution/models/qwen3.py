@@ -2,14 +2,14 @@ import torch
 from torch import nn
 from transformers import Qwen3Config
 
-from ..layers.embed_head import LMHead, VocabEmbedding
+from nanovllm_labs.common.embed_head import LMHead, VocabEmbedding
 from nanovllm_labs.common.layernorm import RMSNorm
 from nanovllm_labs.common.qwen3_blocks import Qwen3DecoderLayer
+
 from ..utils.context import get_context
 
 
 class Qwen3Model(nn.Module):
-
     def __init__(
         self,
         config: Qwen3Config,
@@ -45,11 +45,15 @@ class Qwen3ForCausalLM(nn.Module):
 
     def __init__(
         self,
-        config: Qwen3Config
+        config: Qwen3Config,
     ) -> None:
         super().__init__()
         self.model = Qwen3Model(config)
-        self.lm_head = LMHead(config.vocab_size, config.hidden_size)
+        self.lm_head = LMHead(
+            config.vocab_size,
+            config.hidden_size,
+            context_getter=get_context,
+        )
         if config.tie_word_embeddings:
             self.lm_head.weight.data = self.model.embed_tokens.weight.data
 
